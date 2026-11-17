@@ -1,0 +1,18 @@
+# Private spec: never commit (see docs/private/product.md §0.1)
+docs/private/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Local secrets and state
+.env
+*.token.json
+.secrets/
