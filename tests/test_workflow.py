@@ -152,3 +152,16 @@ def test_resume_from_failed_goes_to_last_successful_state(session: Session, sub:
     session.commit()
     session.refresh(sub)
     assert sub.state == State.PROFILED
+
+
+@pytest.mark.db
+def test_sweep_fails_submission_whose_worker_crashed_every_attempt(session: Session, sub: m.Submission) -> None:
+    from judgebench.workflow import sweep_exhausted
+
+    session.query(m.Submission).filter_by(id=sub.id).update(
+        {"attempts": 3, "lease_until": m.utcnow() - timedelta(seconds=1)})
+    session.commit()
+    assert sweep_exhausted(session, State.RECEIVED, max_attempts=3) == 1
+    session.commit()
+    session.refresh(sub)
+    assert sub.state == State.FAILED and sub.error_category == "worker_lease_expired"

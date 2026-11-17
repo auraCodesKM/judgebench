@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: judgebench
+      POSTGRES_PASSWORD: judgebench
+      POSTGRES_DB: judgebench
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judgebench"]
+      interval: 2s
+      retries: 30
+volumes:
+  pgdata:
