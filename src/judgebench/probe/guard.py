@@ -65,9 +65,19 @@ Resolver = Callable[[str, int], list[str]]
 
 
 class Sender(Protocol):
-    def __call__(self, *, host: str, ip: str, port: int, method: str, target: str,
-                 headers: dict[str, str], body: bytes | None, timeout: float,
-                 max_bytes: int) -> RawResponse: ...
+    def __call__(
+        self,
+        *,
+        host: str,
+        ip: str,
+        port: int,
+        method: str,
+        target: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        timeout: float,
+        max_bytes: int,
+    ) -> RawResponse: ...
 
 
 def check_address(addr: str) -> None:
@@ -101,9 +111,18 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._tls.wrap_socket(sock, server_hostname=self.host)
 
 
-def pinned_send(*, host: str, ip: str, port: int, method: str, target: str,
-                headers: dict[str, str], body: bytes | None, timeout: float,
-                max_bytes: int) -> RawResponse:
+def pinned_send(
+    *,
+    host: str,
+    ip: str,
+    port: int,
+    method: str,
+    target: str,
+    headers: dict[str, str],
+    body: bytes | None,
+    timeout: float,
+    max_bytes: int,
+) -> RawResponse:
     conn = _PinnedHTTPSConnection(host, ip, port, timeout)
     deadline = time.monotonic() + timeout
     try:
@@ -129,8 +148,14 @@ def pinned_send(*, host: str, ip: str, port: int, method: str, target: str,
 class GuardedClient:
     """One instance per submission: request caps are per instance."""
 
-    def __init__(self, *, resolve: Resolver = system_resolve, send: Sender = pinned_send,
-                 limits: ProbeLimits = ProbeLimits(), user_agent: str = "probe/0.1") -> None:  # noqa: B008
+    def __init__(
+        self,
+        *,
+        resolve: Resolver = system_resolve,
+        send: Sender = pinned_send,
+        limits: ProbeLimits = ProbeLimits(),
+        user_agent: str = "probe/0.1",
+    ) -> None:  # noqa: B008
         self._resolve, self._send, self.limits, self._ua = resolve, send, limits, user_agent
         self._pins: dict[str, str] = {}
         self._per_host: Counter[str] = Counter()
@@ -175,8 +200,9 @@ class GuardedClient:
         self._total += 1
         self._per_host[host] += 1
 
-    def request(self, method: str, url: str, *, body: bytes | None = None,
-                content_type: str | None = None) -> ProbeResult:
+    def request(
+        self, method: str, url: str, *, body: bytes | None = None, content_type: str | None = None
+    ) -> ProbeResult:
         method = method.upper()
         if method not in METHODS:
             raise Blocked(f"method {method} not allowed")
@@ -191,9 +217,17 @@ class GuardedClient:
             headers = {"User-Agent": self._ua, "Accept": "*/*", "Connection": "close"}
             if body is not None and content_type:
                 headers["Content-Type"] = content_type
-            raw = self._send(host=host, ip=ip, port=443, method=method, target=target,
-                             headers=headers, body=body, timeout=self.limits.timeout_seconds,
-                             max_bytes=self.limits.max_response_bytes)
+            raw = self._send(
+                host=host,
+                ip=ip,
+                port=443,
+                method=method,
+                target=target,
+                headers=headers,
+                body=body,
+                timeout=self.limits.timeout_seconds,
+                max_bytes=self.limits.max_response_bytes,
+            )
             hops.append(url)
             location = raw.headers.get("location")
             if raw.status in REDIRECTS and location:
@@ -201,7 +235,14 @@ class GuardedClient:
                 if raw.status == 303 or (raw.status in (301, 302) and method == "POST"):
                     method, body = "GET", None
                 continue
-            return ProbeResult(url=url, status=raw.status, content_type=raw.headers.get("content-type"),
-                               body=raw.body, truncated=raw.truncated, pinned_ip=ip, hops=hops,
-                               latency_ms=int((time.monotonic() - start) * 1000))
+            return ProbeResult(
+                url=url,
+                status=raw.status,
+                content_type=raw.headers.get("content-type"),
+                body=raw.body,
+                truncated=raw.truncated,
+                pinned_ip=ip,
+                hops=hops,
+                latency_ms=int((time.monotonic() - start) * 1000),
+            )
         raise Blocked(f"too many redirects (> {self.limits.max_redirects})")

@@ -64,10 +64,11 @@ class Question:
     help: str = ""
 
 
-CATEGORIES = ("Traditional ML", "LLM / RAG", "Agentic AI", "Computer vision / multimodal",
-              "AI infrastructure")
-CONSENT = ("I consent to automated analysis of our submitted artefacts, a small number of live "
-           "requests to our deployed app, and anonymised use in benchmark results.")
+CATEGORIES = ("Traditional ML", "LLM / RAG", "Agentic AI", "Computer vision / multimodal", "AI infrastructure")
+CONSENT = (
+    "I consent to automated analysis of our submitted artefacts, a small number of live "
+    "requests to our deployed app, and anonymised use in benchmark results."
+)
 
 QUESTIONS: tuple[Question, ...] = (
     Question("team_name", "Team name", required=True),
@@ -75,22 +76,36 @@ QUESTIONS: tuple[Question, ...] = (
     Question("project_title", "Project title", required=True),
     Question("problem_statement", "Problem statement", required=True, paragraph=True),
     Question("categories", "AI project category", required=True, choices=CATEGORIES),
-    Question("repo_url", "GitHub repository URL", required=True,
-             help="Public repository, e.g. https://github.com/team/project"),
+    Question(
+        "repo_url",
+        "GitHub repository URL",
+        required=True,
+        help="Public repository, e.g. https://github.com/team/project",
+    ),
     Question("setup_instructions", "README or setup instructions", paragraph=True),
     Question("demo_url", "Demo video URL", help="YouTube; unlisted is fine"),
     Question("deck_url", "Presentation / deck URL"),
     Question("deployed_url", "Deployed application URL (if any)", help="https:// only"),
     Question("tech_claims", "Languages, frameworks, models and tooling", paragraph=True),
     Question("dataset_eval", "Dataset and evaluation information", paragraph=True),
-    Question("special_requirements", "Special execution requirements",
-             help="GPU, API credentials, hardware, paid services", paragraph=True),
-    Question("sample_request", "Sample request for the deployed app (optional)", paragraph=True,
-             help="One example request and what a correct response looks like"),
+    Question(
+        "special_requirements",
+        "Special execution requirements",
+        help="GPU, API credentials, hardware, paid services",
+        paragraph=True,
+    ),
+    Question(
+        "sample_request",
+        "Sample request for the deployed app (optional)",
+        paragraph=True,
+        help="One example request and what a correct response looks like",
+    ),
     Question("consent", "Consent and submission declaration", required=True, choices=(CONSENT,)),
 )
-FORM_NOTICE = ("Do not submit private credentials, API keys or confidential datasets. "
-               "Submitted code is read and analysed, never executed.")
+FORM_NOTICE = (
+    "Do not submit private credentials, API keys or confidential datasets. "
+    "Submitted code is read and analysed, never executed."
+)
 
 
 def _item(q: Question) -> dict[str, Any]:
@@ -106,22 +121,32 @@ def create_form(s: AuthorizedSession, title: str) -> dict[str, Any]:
     """Returns {"form_id", "responder_uri", "questions": {question_id: key}, "published"}."""
     form = _call(s, "POST", FORMS, json={"info": {"title": title, "documentTitle": title}})
     form_id = form["formId"]
-    requests: list[dict[str, Any]] = [{"updateFormInfo": {"info": {"description": FORM_NOTICE},
-                                                          "updateMask": "description"}}]
-    requests += [{"createItem": {"item": _item(q), "location": {"index": i}}}
-                 for i, q in enumerate(QUESTIONS)]
+    requests: list[dict[str, Any]] = [
+        {"updateFormInfo": {"info": {"description": FORM_NOTICE}, "updateMask": "description"}}
+    ]
+    requests += [{"createItem": {"item": _item(q), "location": {"index": i}}} for i, q in enumerate(QUESTIONS)]
     replies = _call(s, "POST", f"{FORMS}/{form_id}:batchUpdate", json={"requests": requests})["replies"]
     qids = {r["createItem"]["questionId"][0]: q.key for r, q in zip(replies[1:], QUESTIONS, strict=True)}
     published = True
     try:  # API-created forms start unpublished
-        _call(s, "POST", f"{FORMS}/{form_id}:setPublishSettings", json={
-            "publishSettings": {"publishState": {"isPublished": True, "isAcceptingResponses": True}},
-            "updateMask": "publishState"})
+        _call(
+            s,
+            "POST",
+            f"{FORMS}/{form_id}:setPublishSettings",
+            json={
+                "publishSettings": {"publishState": {"isPublished": True, "isAcceptingResponses": True}},
+                "updateMask": "publishState",
+            },
+        )
     except Exception:  # noqa: BLE001 - surfaced to the operator as a manual step
         published = False
-    return {"form_id": form_id, "responder_uri": form["responderUri"], "questions": qids,
-            "published": published,
-            "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit"}
+    return {
+        "form_id": form_id,
+        "responder_uri": form["responderUri"],
+        "questions": qids,
+        "published": published,
+        "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit",
+    }
 
 
 def list_responses(s: AuthorizedSession, form_id: str, since: str | None) -> list[dict[str, Any]]:
@@ -151,34 +176,68 @@ JUDGE_EDITABLE = {"Judge Reviews"}
 
 
 def create_judging_workbook(s: AuthorizedSession, title: str) -> dict[str, Any]:
-    book = _call(s, "POST", SHEETS, json={
-        "properties": {"title": title},
-        "sheets": [{"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}} for t in TABS],
-    })
+    book = _call(
+        s,
+        "POST",
+        SHEETS,
+        json={
+            "properties": {"title": title},
+            "sheets": [{"properties": {"title": t, "gridProperties": {"frozenRowCount": 1}}} for t in TABS],
+        },
+    )
     sid = book["spreadsheetId"]
     tab_ids = {sh["properties"]["title"]: sh["properties"]["sheetId"] for sh in book["sheets"]}
-    _call(s, "POST", f"{SHEETS}/{sid}/values:batchUpdate", json={
-        "valueInputOption": "RAW",
-        "data": [{"range": f"'{t}'!A1", "values": [hdr]} for t, hdr in TABS.items()],
-    })
+    _call(
+        s,
+        "POST",
+        f"{SHEETS}/{sid}/values:batchUpdate",
+        json={
+            "valueInputOption": "RAW",
+            "data": [{"range": f"'{t}'!A1", "values": [hdr]} for t, hdr in TABS.items()],
+        },
+    )
     # Protection is a guard against accidental edits, not a security boundary (§6.3).
-    _call(s, "POST", f"{SHEETS}/{sid}:batchUpdate", json={"requests": [
-        {"addProtectedRange": {"protectedRange": {
-            "range": {"sheetId": tab_ids[t]}, "warningOnly": True,
-            "description": "System-managed: regenerated automatically"}}}
-        for t in TABS if t not in JUDGE_EDITABLE
-    ]})
+    _call(
+        s,
+        "POST",
+        f"{SHEETS}/{sid}:batchUpdate",
+        json={
+            "requests": [
+                {
+                    "addProtectedRange": {
+                        "protectedRange": {
+                            "range": {"sheetId": tab_ids[t]},
+                            "warningOnly": True,
+                            "description": "System-managed: regenerated automatically",
+                        }
+                    }
+                }
+                for t in TABS
+                if t not in JUDGE_EDITABLE
+            ]
+        },
+    )
     return {"spreadsheet_id": sid, "url": book["spreadsheetUrl"], "tabs": tab_ids}
 
 
 def share_with(s: AuthorizedSession, file_id: str, email: str) -> None:
-    _call(s, "POST", f"{DRIVE}/{file_id}/permissions", params={"sendNotificationEmail": "true"},
-          json={"role": "writer", "type": "user", "emailAddress": email})
+    _call(
+        s,
+        "POST",
+        f"{DRIVE}/{file_id}/permissions",
+        params={"sendNotificationEmail": "true"},
+        json={"role": "writer", "type": "user", "emailAddress": email},
+    )
 
 
 def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[str | int]]) -> None:
     """Replace everything under the header row. RAW: values are never parsed as formulas."""
     _call(s, "POST", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2:Z:clear", json={})
     if rows:
-        _call(s, "PUT", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2",
-              params={"valueInputOption": "RAW"}, json={"values": [list(r) for r in rows]})
+        _call(
+            s,
+            "PUT",
+            f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2",
+            params={"valueInputOption": "RAW"},
+            json={"values": [list(r) for r in rows]},
+        )

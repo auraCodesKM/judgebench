@@ -46,7 +46,9 @@ socket.create_connection(("127.0.0.1", {port}), timeout=1)
             "pkg/model.py": "import torch\nfrom langchain import hub\n",
             "requirements.txt": "torch\nlangchain\nfaiss-cpu\n",
             "README.md": "# Team project\nRun `pip install -e .`\n",
-            "notebook.ipynb": '{"cells": [{"cell_type": "code", "source": ["' + "import os; os.system('touch x')" + '"]}]}',
+            "notebook.ipynb": '{"cells": [{"cell_type": "code", "source": ["'
+            + "import os; os.system('touch x')"
+            + '"]}]}',
         }
     )
 

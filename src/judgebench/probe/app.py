@@ -55,18 +55,28 @@ def probe(batch: ProbeBatch) -> list[ProbeOutcome]:
     outcomes = []
     for req in batch.requests:
         try:
-            r = client.request(req.method, req.url,
-                               body=req.body.encode() if req.body is not None else None,
-                               content_type=req.content_type)
+            r = client.request(
+                req.method,
+                req.url,
+                body=req.body.encode() if req.body is not None else None,
+                content_type=req.content_type,
+            )
         except Blocked as exc:
             outcomes.append(ProbeOutcome(url=req.url, blocked=str(exc)))
             continue
         except (OSError, ValueError) as exc:  # timeouts, TLS failures, refused connections
             outcomes.append(ProbeOutcome(url=req.url, error=type(exc).__name__))
             continue
-        outcomes.append(ProbeOutcome(
-            url=r.url, status=r.status, latency_ms=r.latency_ms, content_type=r.content_type,
-            body_excerpt=r.body[:MAX_EXCERPT].decode("utf-8", "replace"),
-            body_sha256=hashlib.sha256(r.body).hexdigest(), truncated=r.truncated, hops=r.hops,
-        ))
+        outcomes.append(
+            ProbeOutcome(
+                url=r.url,
+                status=r.status,
+                latency_ms=r.latency_ms,
+                content_type=r.content_type,
+                body_excerpt=r.body[:MAX_EXCERPT].decode("utf-8", "replace"),
+                body_sha256=hashlib.sha256(r.body).hexdigest(),
+                truncated=r.truncated,
+                hops=r.hops,
+            )
+        )
     return outcomes

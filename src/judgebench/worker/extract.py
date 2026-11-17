@@ -55,7 +55,7 @@ class _CapExceeded(Exception):
 class _CappedReader:
     """Counts decompressed bytes and aborts past the cap: archive-bomb guard."""
 
-    def __init__(self, raw: BinaryIO, cap: int) -> None:
+    def __init__(self, raw: gzip.GzipFile, cap: int) -> None:
         self._raw, self._cap, self.count = raw, cap, 0
 
     def read(self, size: int = -1) -> bytes:

@@ -64,15 +64,13 @@ class EventOwned:
     @declared_attr.directive
     def __table_args__(cls) -> tuple[Any, ...]:  # noqa: N805
         return (
-            ForeignKeyConstraint(["tenant_id", "event_id"], ["events.tenant_id", "events.id"],
-                                 ondelete="CASCADE"),
+            ForeignKeyConstraint(["tenant_id", "event_id"], ["events.tenant_id", "events.id"], ondelete="CASCADE"),
             *cls._extra_args,
         )
 
 
 def _child_of(parent: str, col: str) -> ForeignKeyConstraint:
-    return ForeignKeyConstraint(["event_id", col], [f"{parent}.event_id", f"{parent}.id"],
-                                ondelete="CASCADE")
+    return ForeignKeyConstraint(["event_id", col], [f"{parent}.event_id", f"{parent}.id"], ondelete="CASCADE")
 
 
 # --- tenancy and identity --------------------------------------------------------------
@@ -180,10 +178,10 @@ class Submission(EventOwned, Base):
     form_answers: Mapped[dict[str, Any]]
     commit_sha: Mapped[str | None] = mapped_column(String(64))
     # --- workflow state (§16.3) ---
-    state: Mapped[State] = mapped_column(SAEnum(State, native_enum=False, length=30),
-                                         default=State.RECEIVED, index=True)
-    last_successful_state: Mapped[State | None] = mapped_column(
-        SAEnum(State, native_enum=False, length=30))
+    state: Mapped[State] = mapped_column(
+        SAEnum(State, native_enum=False, length=30), default=State.RECEIVED, index=True
+    )
+    last_successful_state: Mapped[State | None] = mapped_column(SAEnum(State, native_enum=False, length=30))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     lease_until: Mapped[datetime | None]
     error_category: Mapped[str | None] = mapped_column(String(50))
@@ -211,8 +209,10 @@ class SubmissionArtefact(EventOwned, Base):
 
 class RepositoryProfileRow(EventOwned, Base):
     __tablename__ = "repository_profiles"
-    _extra_args = (_child_of("submissions", "submission_id"),
-                   UniqueConstraint("submission_id", "commit_sha", "profiler_version"))
+    _extra_args = (
+        _child_of("submissions", "submission_id"),
+        UniqueConstraint("submission_id", "commit_sha", "profiler_version"),
+    )
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     submission_id: Mapped[uuid.UUID] = mapped_column()
@@ -279,8 +279,7 @@ class Evaluation(EventOwned, Base):
 
 class CriterionScore(EventOwned, Base):
     __tablename__ = "criterion_scores"
-    _extra_args = (_child_of("evaluations", "evaluation_id"),
-                   UniqueConstraint("evaluation_id", "criterion_id"))
+    _extra_args = (_child_of("evaluations", "evaluation_id"), UniqueConstraint("evaluation_id", "criterion_id"))
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     evaluation_id: Mapped[uuid.UUID] = mapped_column()
@@ -324,8 +323,7 @@ class BehaviourCheck(EventOwned, Base):
 
 class JudgeReview(EventOwned, Base):
     __tablename__ = "judge_reviews"
-    _extra_args = (_child_of("evaluations", "evaluation_id"),
-                   _child_of("judge_memberships", "judge_membership_id"))
+    _extra_args = (_child_of("evaluations", "evaluation_id"), _child_of("judge_memberships", "judge_membership_id"))
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     evaluation_id: Mapped[uuid.UUID] = mapped_column(index=True)
@@ -370,8 +368,7 @@ class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenants.id"))
-    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"),
-                                                       index=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     submission_id: Mapped[uuid.UUID | None]
     actor: Mapped[str] = mapped_column(String(100))  # system:worker | telegram:<id> | operator
     action: Mapped[str] = mapped_column(String(60), index=True)

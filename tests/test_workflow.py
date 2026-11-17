@@ -27,12 +27,15 @@ def test_happy_path_is_allowed() -> None:
         assert can_transition(a, b), (a, b)
 
 
-@pytest.mark.parametrize("a,b", [
-    (State.RECEIVED, State.EVALUATING),
-    (State.PROFILED, State.READY_FOR_REVIEW),
-    (State.READY_FOR_REVIEW, State.RECEIVED),
-    (State.PROFILED, State.RECEIVED),
-])
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        (State.RECEIVED, State.EVALUATING),
+        (State.PROFILED, State.READY_FOR_REVIEW),
+        (State.READY_FOR_REVIEW, State.RECEIVED),
+        (State.PROFILED, State.RECEIVED),
+    ],
+)
 def test_skips_and_backwards_rejected(a: State, b: State) -> None:
     assert not can_transition(a, b)
 
@@ -49,6 +52,7 @@ def test_terminal_states_are_terminal() -> None:
 
 
 # --- persisted transitions ------------------------------------------------------------
+
 
 @pytest.fixture
 def sub(session: Session) -> m.Submission:
@@ -107,12 +111,13 @@ def test_claim_is_exclusive_and_counts_attempts(session_factory: sessionmaker[Se
 
 
 @pytest.mark.db
-def test_crashed_worker_lease_expires_and_work_resumes(session_factory: sessionmaker[Session], sub: m.Submission) -> None:
+def test_crashed_worker_lease_expires_and_work_resumes(
+    session_factory: sessionmaker[Session], sub: m.Submission
+) -> None:
     with session_factory() as s:
         assert claim_next(s, State.RECEIVED) == sub.id
         # worker "crashes": never transitions. Fast-forward the lease.
-        s.query(m.Submission).filter_by(id=sub.id).update(
-            {"lease_until": m.utcnow() - timedelta(seconds=1)})
+        s.query(m.Submission).filter_by(id=sub.id).update({"lease_until": m.utcnow() - timedelta(seconds=1)})
         s.commit()
     with session_factory() as s:
         assert claim_next(s, State.RECEIVED) == sub.id
@@ -159,7 +164,8 @@ def test_sweep_fails_submission_whose_worker_crashed_every_attempt(session: Sess
     from judgebench.workflow import sweep_exhausted
 
     session.query(m.Submission).filter_by(id=sub.id).update(
-        {"attempts": 3, "lease_until": m.utcnow() - timedelta(seconds=1)})
+        {"attempts": 3, "lease_until": m.utcnow() - timedelta(seconds=1)}
+    )
     session.commit()
     assert sweep_exhausted(session, State.RECEIVED, max_attempts=3) == 1
     session.commit()

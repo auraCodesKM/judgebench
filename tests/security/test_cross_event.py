@@ -72,9 +72,18 @@ def test_composite_fk_blocks_cross_event_submission(session: Session, two_events
 
     _, b = two_events
     alpha = session.query(m.Team).filter_by(name="Alpha").one()
-    session.add(m.Submission(tenant_id=b.tenant_id, event_id=b.id, team_id=alpha.id,
-                             form_response_id="evil", version=1, repo_url="https://github.com/x/y",
-                             form_answers={}, submitted_at=m.utcnow()))
+    session.add(
+        m.Submission(
+            tenant_id=b.tenant_id,
+            event_id=b.id,
+            team_id=alpha.id,
+            form_response_id="evil",
+            version=1,
+            repo_url="https://github.com/x/y",
+            form_answers={},
+            submitted_at=m.utcnow(),
+        )
+    )
     with pytest.raises(IntegrityError):
         session.flush()
 

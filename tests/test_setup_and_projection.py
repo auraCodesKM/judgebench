@@ -17,14 +17,21 @@ pytestmark = pytest.mark.db
 
 
 def config(judges: list[Judge]) -> EventConfig:
-    return EventConfig(slug="campus-2026", name="Campus Hack", organisation="Campus", telegram_chat_id=-100,
-                       deadline=datetime(2026, 11, 23, tzinfo=UTC), judges=judges)
+    return EventConfig(
+        slug="campus-2026",
+        name="Campus Hack",
+        organisation="Campus",
+        telegram_chat_id=-100,
+        deadline=datetime(2026, 11, 23, tzinfo=UTC),
+        judges=judges,
+    )
 
 
 def test_rubric_weights_must_sum_to_100() -> None:
     from pydantic import ValidationError
 
     from judgebench.event_config import Criterion
+
     with pytest.raises(ValidationError):
         EventConfig(**{**config([]).model_dump(), "rubric": [Criterion(id="a", name="A", weight=50)]})
 
@@ -45,17 +52,29 @@ def test_setup_is_idempotent_and_revokes_removed_judges(session: Session) -> Non
 
 def test_leaderboard_shows_latest_version_and_is_written_raw(session: Session) -> None:
     event = upsert_event(session, config([]))
-    session.add(m.EventIntegration(tenant_id=event.tenant_id, event_id=event.id, provider="google_sheets",
-                                   external_ids={"spreadsheet_id": "S"}))
-    team = make_team(session, event, "=HYPERLINK(\"http://x\")")
+    session.add(
+        m.EventIntegration(
+            tenant_id=event.tenant_id, event_id=event.id, provider="google_sheets", external_ids={"spreadsheet_id": "S"}
+        )
+    )
+    team = make_team(session, event, '=HYPERLINK("http://x")')
     make_submission(session, team, "r1")
     v2 = make_submission(session, team, "r2", version=2)
     v2.commit_sha = "3f2c1ab" + "0" * 33
     session.flush()
     transition(session, v2.id, State.RECEIVED, State.PROFILED, message="x")
-    session.add(m.RepositoryProfileRow(tenant_id=event.tenant_id, event_id=event.id, submission_id=v2.id,
-                                       commit_sha=v2.commit_sha, profiler_version="0.1.0",
-                                       categories={"llm_rag": 0.8, "agentic": 0.6}, technologies=[], profile={}))
+    session.add(
+        m.RepositoryProfileRow(
+            tenant_id=event.tenant_id,
+            event_id=event.id,
+            submission_id=v2.id,
+            commit_sha=v2.commit_sha,
+            profiler_version="0.1.0",
+            categories={"llm_rag": 0.8, "agentic": 0.6},
+            technologies=[],
+            profile={},
+        )
+    )
     session.commit()
 
     writes: list[tuple[str, str, Sequence[Sequence[str | int]]]] = []

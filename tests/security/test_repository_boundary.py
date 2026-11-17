@@ -149,8 +149,12 @@ HONEST_FILES = {
 def test_prompt_injection_does_not_change_profile(tmp_path: Path) -> None:
     clean, injected = tmp_path / "clean", tmp_path / "injected"
     _extract(tb.tar_gz(HONEST_FILES), clean)
-    _extract(tb.tar_gz({**HONEST_FILES, "README.md": HONEST_FILES["README.md"] + INJECTION,
-                        "app/notes.py": f'"""{INJECTION}"""\n'}), injected)
+    _extract(
+        tb.tar_gz(
+            {**HONEST_FILES, "README.md": HONEST_FILES["README.md"] + INJECTION, "app/notes.py": f'"""{INJECTION}"""\n'}
+        ),
+        injected,
+    )
 
     a = profile_repository(clean, commit_sha="abc", limitations=[])
     b = profile_repository(injected, commit_sha="abc", limitations=[])
@@ -160,8 +164,7 @@ def test_prompt_injection_does_not_change_profile(tmp_path: Path) -> None:
     assert a.technologies == b.technologies
 
 
-@pytest.mark.xfail(reason="M2: needs rubric scoring + ADK tools to prove scores/tools/scope unchanged",
-                   strict=True)
+@pytest.mark.xfail(reason="M2: needs rubric scoring + ADK tools to prove scores/tools/scope unchanged", strict=True)
 def test_prompt_injection_full_pipeline_unchanged() -> None:
     from judgebench.agents import evaluate_submission  # type: ignore[attr-defined]  # noqa: F401
 

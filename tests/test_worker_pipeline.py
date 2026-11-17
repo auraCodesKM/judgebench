@@ -14,12 +14,14 @@ from tests.security import tarballs as tb
 
 pytestmark = pytest.mark.db
 SHA = "3f2c1ab" + "0" * 33
-RAG_REPO = tb.tar_gz({
-    "README.md": "# Alpha\n",
-    "requirements.txt": "langchain\nfaiss-cpu\nfastapi\n",
-    "app/main.py": "from fastapi import FastAPI\nfrom langgraph.graph import StateGraph\napp = FastAPI()\n",
-    "tests/test_app.py": "def test_x():\n    assert True\n",
-})
+RAG_REPO = tb.tar_gz(
+    {
+        "README.md": "# Alpha\n",
+        "requirements.txt": "langchain\nfaiss-cpu\nfastapi\n",
+        "app/main.py": "from fastapi import FastAPI\nfrom langgraph.graph import StateGraph\napp = FastAPI()\n",
+        "tests/test_app.py": "def test_x():\n    assert True\n",
+    }
+)
 
 
 class FakeGitHub(GitHub):
@@ -61,7 +63,9 @@ def test_profiles_and_announces(session_factory: sessionmaker[Session], session:
     assert "adapters: Agentic, RAG" in note.text
 
 
-def test_queue_empty_and_no_duplicate_work(session_factory: sessionmaker[Session], session: Session, sub: m.Submission) -> None:
+def test_queue_empty_and_no_duplicate_work(
+    session_factory: sessionmaker[Session], session: Session, sub: m.Submission
+) -> None:
     gh = FakeGitHub()
     run_profile_stage(session_factory, gh)
     assert run_profile_stage(session_factory, gh) is None
@@ -70,7 +74,8 @@ def test_queue_empty_and_no_duplicate_work(session_factory: sessionmaker[Session
 
 
 def test_transient_error_retries_then_succeeds_with_same_commit(
-        session_factory: sessionmaker[Session], session: Session, sub: m.Submission) -> None:
+    session_factory: sessionmaker[Session], session: Session, sub: m.Submission
+) -> None:
     gh = FakeGitHub([RepoError("github_unavailable", True, "HTTP 502")])
     run_profile_stage(session_factory, gh)
     session.refresh(sub)
@@ -83,7 +88,9 @@ def test_transient_error_retries_then_succeeds_with_same_commit(
     assert gh.downloads == [SHA, SHA]
 
 
-def test_crash_mid_stage_leaves_no_partial_rows(session_factory: sessionmaker[Session], session: Session, sub: m.Submission) -> None:
+def test_crash_mid_stage_leaves_no_partial_rows(
+    session_factory: sessionmaker[Session], session: Session, sub: m.Submission
+) -> None:
     run_profile_stage(session_factory, FakeGitHub([RuntimeError("worker killed")]))
     session.refresh(sub)
     assert sub.state == State.RECEIVED and sub.error_category == "internal_error"
@@ -91,7 +98,9 @@ def test_crash_mid_stage_leaves_no_partial_rows(session_factory: sessionmaker[Se
     assert session.query(m.Notification).count() == 0
 
 
-def test_missing_repo_fails_without_retry(session_factory: sessionmaker[Session], session: Session, sub: m.Submission) -> None:
+def test_missing_repo_fails_without_retry(
+    session_factory: sessionmaker[Session], session: Session, sub: m.Submission
+) -> None:
     run_profile_stage(session_factory, FakeGitHub([RepoError("repo_not_found", False, "private")]))
     session.refresh(sub)
     assert sub.state == State.FAILED and sub.retryable is False

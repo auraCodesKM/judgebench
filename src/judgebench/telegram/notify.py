@@ -37,9 +37,10 @@ class TelegramBot:
 
     def send(self, chat_id: int, text: str) -> int:
         try:
-            resp = self._http.post(f"https://api.telegram.org/bot{self._token}/sendMessage",
-                                   json={"chat_id": chat_id, "text": text[:MAX_TEXT],
-                                         "disable_web_page_preview": True})
+            resp = self._http.post(
+                f"https://api.telegram.org/bot{self._token}/sendMessage",
+                json={"chat_id": chat_id, "text": text[:MAX_TEXT], "disable_web_page_preview": True},
+            )
         except httpx.HTTPError as exc:
             raise RuntimeError(self._scrub(f"{type(exc).__name__}: {exc}")) from None
         body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
@@ -63,14 +64,18 @@ def drain(session: Session, bot: TelegramBot, *, limit: int = 20) -> int:
         .join(Event, Event.id == Notification.event_id)
         .outerjoin(Submission, Submission.id == Notification.submission_id)
         .outerjoin(Team, Team.id == Submission.team_id)
-        .where(Notification.sent_at.is_(None), Event.telegram_chat_id.is_not(None),
-               or_(Notification.next_attempt_at.is_(None), Notification.next_attempt_at <= now))
+        .where(
+            Notification.sent_at.is_(None),
+            Event.telegram_chat_id.is_not(None),
+            or_(Notification.next_attempt_at.is_(None), Notification.next_attempt_at <= now),
+        )
         .order_by(Notification.id)
         .limit(limit)
         .with_for_update(of=Notification, skip_locked=True)
     ).all()
     sent = 0
     for note, chat_id, team in rows:
+        assert chat_id is not None  # filtered in the query
         note.attempts += 1
         try:
             note.telegram_message_id = bot.send(chat_id, format_message(team, note.text))
@@ -81,6 +86,6 @@ def drain(session: Session, bot: TelegramBot, *, limit: int = 20) -> int:
             break
         except RuntimeError as exc:
             note.last_error = str(exc)[:500]
-            note.next_attempt_at = utcnow() + timedelta(seconds=min(300, 5 * 2 ** note.attempts))
+            note.next_attempt_at = utcnow() + timedelta(seconds=min(300, 5 * 2**note.attempts))
     session.commit()
     return sent

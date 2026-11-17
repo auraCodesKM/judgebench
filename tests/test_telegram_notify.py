@@ -39,8 +39,13 @@ def sub(session: Session) -> m.Submission:
 def test_sends_plain_text_with_team_prefix(session: Session, sub: m.Submission) -> None:
     sent: list[dict[str, object]] = []
     assert drain(session, bot(sent=sent)) == 1
-    assert sent == [{"chat_id": -100123, "text": "[=Team Alpha] Profiled (commit 3f2c1ab): Python",
-                     "disable_web_page_preview": True}]  # no parse_mode
+    assert sent == [
+        {
+            "chat_id": -100123,
+            "text": "[=Team Alpha] Profiled (commit 3f2c1ab): Python",
+            "disable_web_page_preview": True,
+        }
+    ]  # no parse_mode
     note = session.query(m.Notification).one()
     assert note.sent_at is not None and note.telegram_message_id == 42
     assert drain(session, bot()) == 0  # never re-sent
@@ -65,8 +70,11 @@ def test_errors_never_store_the_bot_token(session: Session, sub: m.Submission) -
 
 def test_event_level_message_has_no_team_prefix(session: Session, sub: m.Submission) -> None:
     session.query(m.Notification).update({"sent_at": m.utcnow()})
-    session.add(m.Notification(tenant_id=sub.tenant_id, event_id=sub.event_id, submission_id=None,
-                               stage="EVENT_READY", text="Event ready"))
+    session.add(
+        m.Notification(
+            tenant_id=sub.tenant_id, event_id=sub.event_id, submission_id=None, stage="EVENT_READY", text="Event ready"
+        )
+    )
     session.commit()
     sent: list[dict[str, object]] = []
     drain(session, bot(sent=sent))

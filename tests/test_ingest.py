@@ -15,8 +15,13 @@ from tests.conftest import make_event
 QUESTIONS = {"q1": "team_name", "q2": "repo_url", "q3": "categories", "q4": "deployed_url"}
 
 
-def response(rid: str, team: str, repo: str = "https://github.com/acme/demo",
-             ts: str = "2026-11-22T10:00:00Z", **extra: list[str]) -> dict[str, Any]:
+def response(
+    rid: str,
+    team: str,
+    repo: str = "https://github.com/acme/demo",
+    ts: str = "2026-11-22T10:00:00Z",
+    **extra: list[str],
+) -> dict[str, Any]:
     def txt(*vals: str) -> dict[str, Any]:
         return {"textAnswers": {"answers": [{"value": v} for v in vals]}}
 
@@ -25,19 +30,22 @@ def response(rid: str, team: str, repo: str = "https://github.com/acme/demo",
     return {"responseId": rid, "createTime": ts, "lastSubmittedTime": ts, "answers": answers}
 
 
-@pytest.mark.parametrize("url,expected", [
-    ("https://github.com/acme/demo", RepoRef("acme", "demo")),
-    ("https://github.com/acme/demo.git", RepoRef("acme", "demo")),
-    ("github.com/acme/demo/", RepoRef("acme", "demo")),
-    ("http://www.github.com/acme/demo", RepoRef("acme", "demo")),
-    ("https://github.com/acme/demo/tree/main", RepoRef("acme", "demo", "main")),
-    ("https://github.com/acme/demo/commit/3f2c1ab", RepoRef("acme", "demo", "3f2c1ab")),
-    ("https://gitlab.com/acme/demo", None),
-    ("https://github.com/acme", None),
-    ("https://github.com/acme/../etc", None),
-    ("https://github.com.evil.com/acme/demo", None),
-    ("https://github.com/acme/demo?x=https://169.254.169.254", None),
-])
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://github.com/acme/demo", RepoRef("acme", "demo")),
+        ("https://github.com/acme/demo.git", RepoRef("acme", "demo")),
+        ("github.com/acme/demo/", RepoRef("acme", "demo")),
+        ("http://www.github.com/acme/demo", RepoRef("acme", "demo")),
+        ("https://github.com/acme/demo/tree/main", RepoRef("acme", "demo", "main")),
+        ("https://github.com/acme/demo/commit/3f2c1ab", RepoRef("acme", "demo", "3f2c1ab")),
+        ("https://gitlab.com/acme/demo", None),
+        ("https://github.com/acme", None),
+        ("https://github.com/acme/../etc", None),
+        ("https://github.com.evil.com/acme/demo", None),
+        ("https://github.com/acme/demo?x=https://169.254.169.254", None),
+    ],
+)
 def test_parse_repo_url(url: str, expected: RepoRef | None) -> None:
     assert parse_repo_url(url) == expected
 
@@ -45,8 +53,11 @@ def test_parse_repo_url(url: str, expected: RepoRef | None) -> None:
 def test_parse_response_ignores_unknown_questions() -> None:
     raw = response("r1", "Alpha", q99=["injected"])
     parsed = parse_response(raw, QUESTIONS)
-    assert parsed.answers == {"team_name": "Alpha", "repo_url": "https://github.com/acme/demo",
-                              "categories": ["LLM / RAG", "Agentic AI"]}
+    assert parsed.answers == {
+        "team_name": "Alpha",
+        "repo_url": "https://github.com/acme/demo",
+        "categories": ["LLM / RAG", "Agentic AI"],
+    }
     assert parsed.submitted_at == datetime(2026, 11, 22, 10, tzinfo=UTC)
 
 
@@ -73,8 +84,9 @@ def test_ingest_is_idempotent_on_response_id(session: Session, event: m.Event) -
 
 @pytest.mark.db
 def test_resubmission_creates_new_version_same_team(session: Session, event: m.Event) -> None:
-    ingest_responses(session, event, [response("r1", "Alpha"),
-                                      response("r2", "  ALPHA ", ts="2026-11-22T11:00:00Z")], QUESTIONS)
+    ingest_responses(
+        session, event, [response("r1", "Alpha"), response("r2", "  ALPHA ", ts="2026-11-22T11:00:00Z")], QUESTIONS
+    )
     session.commit()
     subs = session.query(m.Submission).order_by(m.Submission.version).all()
     assert [s.version for s in subs] == [1, 2]
@@ -102,8 +114,15 @@ def test_late_submission_flagged_not_dropped(session: Session, event: m.Event) -
 
 @pytest.mark.db
 def test_sync_event_advances_cursor_and_tolerates_overlap(session: Session, event: m.Event) -> None:
-    session.add(m.EventIntegration(tenant_id=event.tenant_id, event_id=event.id, provider="google_forms",
-                                   external_ids={"form_id": "F", "questions": QUESTIONS}, status="ready"))
+    session.add(
+        m.EventIntegration(
+            tenant_id=event.tenant_id,
+            event_id=event.id,
+            provider="google_forms",
+            external_ids={"form_id": "F", "questions": QUESTIONS},
+            status="ready",
+        )
+    )
     session.commit()
     calls: list[str | None] = []
     feed = [response("r1", "Alpha", ts="2026-11-22T10:00:00Z")]

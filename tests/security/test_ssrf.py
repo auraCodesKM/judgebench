@@ -13,8 +13,9 @@ PUBLIC_IP = "93.184.215.14"
 class FakeNet:
     """Fake resolver + sender. Records every address we actually *connect* to."""
 
-    def __init__(self, dns: dict[str, list[str] | Callable[[], list[str]]],
-                 responses: dict[str, RawResponse] | None = None) -> None:
+    def __init__(
+        self, dns: dict[str, list[str] | Callable[[], list[str]]], responses: dict[str, RawResponse] | None = None
+    ) -> None:
         self.dns = dns
         self.responses = responses or {}
         self.resolve_calls: list[str] = []
@@ -25,14 +26,23 @@ class FakeNet:
         entry = self.dns.get(host)
         if entry is None:
             # IP literals and unknown names: real getaddrinfo (numeric → no network).
-            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM,
-                                       flags=socket.AI_NUMERICHOST)
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, flags=socket.AI_NUMERICHOST)
             return [str(i[4][0]) for i in infos]
         return entry() if callable(entry) else entry
 
-    def send(self, *, host: str, ip: str, port: int, method: str, target: str,
-             headers: dict[str, str], body: bytes | None, timeout: float,
-             max_bytes: int) -> RawResponse:
+    def send(
+        self,
+        *,
+        host: str,
+        ip: str,
+        port: int,
+        method: str,
+        target: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        timeout: float,
+        max_bytes: int,
+    ) -> RawResponse:
         self.connected.append((host, ip, headers))
         return self.responses.get(host, RawResponse(200, {"content-type": "text/plain"}, b"ok", False))
 
@@ -49,17 +59,24 @@ def assert_blocked(net: FakeNet, url: str) -> None:
 # --- metadata -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("url", [
-    "http://169.254.169.254/computeMetadata/v1/",
-    "https://169.254.169.254/computeMetadata/v1/",
-    "https://metadata.google.internal/computeMetadata/v1/",
-    "https://METADATA.GOOGLE.INTERNAL./computeMetadata/v1/",
-    "https://metadata/computeMetadata/v1/",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://169.254.169.254/computeMetadata/v1/",
+        "https://169.254.169.254/computeMetadata/v1/",
+        "https://metadata.google.internal/computeMetadata/v1/",
+        "https://METADATA.GOOGLE.INTERNAL./computeMetadata/v1/",
+        "https://metadata/computeMetadata/v1/",
+    ],
+)
 def test_metadata_blocked_before_connecting(url: str) -> None:
-    net = FakeNet({"metadata.google.internal": ["169.254.169.254"],
-                   "metadata.google.internal.": ["169.254.169.254"],
-                   "metadata": ["169.254.169.254"]})
+    net = FakeNet(
+        {
+            "metadata.google.internal": ["169.254.169.254"],
+            "metadata.google.internal.": ["169.254.169.254"],
+            "metadata": ["169.254.169.254"],
+        }
+    )
     assert_blocked(net, url)
     assert net.connected == []
 
@@ -67,26 +84,40 @@ def test_metadata_blocked_before_connecting(url: str) -> None:
 # --- private ranges ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("url", [
-    "https://10.0.0.1/", "https://10.255.1.2/health", "https://127.0.0.1/", "https://[::1]/",
-    "https://172.16.0.1/", "https://192.168.1.1/", "https://100.64.0.1/",  # CGNAT
-    "https://224.0.0.1/",  # multicast
-    "https://0.0.0.0/", "https://[::ffff:127.0.0.1]/", "https://[fe80::1]/", "https://[fc00::1]/",
-    "https://2130706433/",  # 127.0.0.1 as an integer
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://10.0.0.1/",
+        "https://10.255.1.2/health",
+        "https://127.0.0.1/",
+        "https://[::1]/",
+        "https://172.16.0.1/",
+        "https://192.168.1.1/",
+        "https://100.64.0.1/",  # CGNAT
+        "https://224.0.0.1/",  # multicast
+        "https://0.0.0.0/",
+        "https://[::ffff:127.0.0.1]/",
+        "https://[fe80::1]/",
+        "https://[fc00::1]/",
+        "https://2130706433/",  # 127.0.0.1 as an integer
+    ],
+)
 def test_private_ranges_blocked(url: str) -> None:
     net = FakeNet({})
     assert_blocked(net, url)
     assert net.connected == []
 
 
-@pytest.mark.parametrize("url", [
-    "http://example.com/",          # not HTTPS
-    "https://example.com:8443/",    # non-standard port
-    "https://user:pw@example.com/",  # credentials in URL
-    "ftp://example.com/",
-    "file:///etc/passwd",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/",  # not HTTPS
+        "https://example.com:8443/",  # non-standard port
+        "https://user:pw@example.com/",  # credentials in URL
+        "ftp://example.com/",
+        "file:///etc/passwd",
+    ],
+)
 def test_scheme_port_and_userinfo_rules(url: str) -> None:
     net = FakeNet({"example.com": [PUBLIC_IP]})
     assert_blocked(net, url)
@@ -111,22 +142,29 @@ def test_redirect_to_private_address_blocked() -> None:
     assert [h for h, _, _ in net.connected] == ["public.example"]
 
 
-@pytest.mark.parametrize("location", [
-    "http://169.254.169.254/computeMetadata/v1/",
-    "https://metadata.google.internal/",
-    "https://127.0.0.1:443/",
-    "http://public.example/",  # downgrade to http
-])
+@pytest.mark.parametrize(
+    "location",
+    [
+        "http://169.254.169.254/computeMetadata/v1/",
+        "https://metadata.google.internal/",
+        "https://127.0.0.1:443/",
+        "http://public.example/",  # downgrade to http
+    ],
+)
 def test_redirect_targets_rechecked(location: str) -> None:
-    net = FakeNet({"public.example": [PUBLIC_IP], "metadata.google.internal": ["169.254.169.254"]},
-                  {"public.example": RawResponse(301, {"location": location}, b"", False)})
+    net = FakeNet(
+        {"public.example": [PUBLIC_IP], "metadata.google.internal": ["169.254.169.254"]},
+        {"public.example": RawResponse(301, {"location": location}, b"", False)},
+    )
     assert_blocked(net, "https://public.example/")
     assert len(net.connected) == 1
 
 
 def test_redirect_hop_limit() -> None:
-    net = FakeNet({"loop.example": [PUBLIC_IP]},
-                  {"loop.example": RawResponse(302, {"location": "https://loop.example/"}, b"", False)})
+    net = FakeNet(
+        {"loop.example": [PUBLIC_IP]},
+        {"loop.example": RawResponse(302, {"location": "https://loop.example/"}, b"", False)},
+    )
     with pytest.raises(Blocked, match="redirect"):
         net.client(max_redirects=3).request("GET", "https://loop.example/")
     assert len(net.connected) == 4  # original + 3 hops
@@ -155,9 +193,10 @@ def test_dns_answer_with_any_private_address_blocked() -> None:
 
 
 def test_no_cookies_no_credentials_fixed_user_agent() -> None:
-    net = FakeNet({"a.example": [PUBLIC_IP], "b.example": [PUBLIC_IP]},
-                  {"a.example": RawResponse(302, {"location": "https://b.example/",
-                                                   "set-cookie": "s=1"}, b"", False)})
+    net = FakeNet(
+        {"a.example": [PUBLIC_IP], "b.example": [PUBLIC_IP]},
+        {"a.example": RawResponse(302, {"location": "https://b.example/", "set-cookie": "s=1"}, b"", False)},
+    )
     net.client().request("GET", "https://a.example/")
     for _, _, headers in net.connected:
         lowered = {k.lower() for k in headers}
@@ -199,11 +238,16 @@ def test_probe_service_blocks_metadata_and_private() -> None:
 
     from judgebench.probe.app import app
 
-    resp = TestClient(app).post("/probe", json={"requests": [
-        {"url": "http://169.254.169.254/computeMetadata/v1/"},
-        {"url": "https://metadata.google.internal/"},
-        {"url": "https://127.0.0.1/"},
-        {"url": "https://[::1]/"},
-    ]})
+    resp = TestClient(app).post(
+        "/probe",
+        json={
+            "requests": [
+                {"url": "http://169.254.169.254/computeMetadata/v1/"},
+                {"url": "https://metadata.google.internal/"},
+                {"url": "https://127.0.0.1/"},
+                {"url": "https://[::1]/"},
+            ]
+        },
+    )
     assert resp.status_code == 200
     assert all(o["blocked"] and o["status"] is None for o in resp.json())

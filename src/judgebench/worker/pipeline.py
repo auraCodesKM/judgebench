@@ -54,24 +54,46 @@ def _profile(session: Session, github: GitHub, sid: uuid.UUID, scratch: Path | N
         profile = profile_repository(Path(tmp) / "src", commit_sha=sha, limitations=limitations)
 
     scope = {"tenant_id": sub.tenant_id, "event_id": sub.event_id, "submission_id": sid}
-    session.add(SubmissionArtefact(
-        **scope, type="repo_tarball", sha256=tarball.sha256, size_bytes=tarball.size,
-        details={"commit_sha": sha, "files_written": result.files_written,
-                 "rejected": len(result.rejected), "skipped": len(result.skipped),
-                 "truncated": result.truncated or tarball.truncated},
-    ))
-    session.execute(insert(RepositoryProfileRow).values(
-        id=uuid.uuid4(), **scope, commit_sha=sha, profiler_version=profile.profiler_version,
-        categories=profile.categories, technologies=profile.technologies,
-        profile=profile.model_dump(mode="json"),
-    ).on_conflict_do_nothing(index_elements=["submission_id", "commit_sha", "profiler_version"]))
+    session.add(
+        SubmissionArtefact(
+            **scope,
+            type="repo_tarball",
+            sha256=tarball.sha256,
+            size_bytes=tarball.size,
+            details={
+                "commit_sha": sha,
+                "files_written": result.files_written,
+                "rejected": len(result.rejected),
+                "skipped": len(result.skipped),
+                "truncated": result.truncated or tarball.truncated,
+            },
+        )
+    )
+    session.execute(
+        insert(RepositoryProfileRow)
+        .values(
+            id=uuid.uuid4(),
+            **scope,
+            commit_sha=sha,
+            profiler_version=profile.profiler_version,
+            categories=profile.categories,
+            technologies=profile.technologies,
+            profile=profile.model_dump(mode="json"),
+        )
+        .on_conflict_do_nothing(index_elements=["submission_id", "commit_sha", "profiler_version"])
+    )
     sub.source_hashes = {**sub.source_hashes, "repo_tarball_sha256": tarball.sha256}
-    transition(session, sid, State.RECEIVED, State.PROFILED, message=profiled_message(profile),
-               detail={"categories": profile.categories, "adapters": profile.recommended_adapters})
+    transition(
+        session,
+        sid,
+        State.RECEIVED,
+        State.PROFILED,
+        message=profiled_message(profile),
+        detail={"categories": profile.categories, "adapters": profile.recommended_adapters},
+    )
 
 
-def run_profile_stage(sessions: sessionmaker[Session], github: GitHub,
-                      scratch: Path | None = None) -> uuid.UUID | None:
+def run_profile_stage(sessions: sessionmaker[Session], github: GitHub, scratch: Path | None = None) -> uuid.UUID | None:
     """Process at most one RECEIVED submission. Returns its ID, or None if the queue is empty."""
     with sessions() as session:
         sweep_exhausted(session, State.RECEIVED)

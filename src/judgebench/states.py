@@ -18,8 +18,13 @@ class State(StrEnum):
 
 
 PIPELINE: tuple[State, ...] = (
-    State.RECEIVED, State.PROFILED, State.COLLECTING_EVIDENCE, State.EVALUATING,
-    State.CRITIQUING, State.READY_FOR_REVIEW, State.REVIEWED,
+    State.RECEIVED,
+    State.PROFILED,
+    State.COLLECTING_EVIDENCE,
+    State.EVALUATING,
+    State.CRITIQUING,
+    State.READY_FOR_REVIEW,
+    State.REVIEWED,
 )
 # FAILED is not terminal: it can resume to the last successful state.
 TERMINAL = frozenset({State.REVIEWED, State.CANCELLED})

@@ -38,8 +38,9 @@ class EventScope:
 
 def scope_for_telegram_user(session: Session, telegram_user_id: int) -> EventScope:
     ids = session.scalars(
-        select(JudgeMembership.event_id).where(JudgeMembership.telegram_user_id == telegram_user_id,
-                                               JudgeMembership.status == "active")
+        select(JudgeMembership.event_id).where(
+            JudgeMembership.telegram_user_id == telegram_user_id, JudgeMembership.status == "active"
+        )
     ).all()
     return EventScope(actor=f"telegram:{telegram_user_id}", event_ids=frozenset(ids))
 
@@ -47,8 +48,13 @@ def scope_for_telegram_user(session: Session, telegram_user_id: int) -> EventSco
 def log_denial(session: Session, actor: str, event_id: uuid.UUID | None, action: str) -> None:
     """Adds the audit row to the caller's transaction; the caller commits."""
     event = session.get(Event, event_id) if event_id else None
-    session.add(AuditEvent(
-        tenant_id=event.tenant_id if event else None, event_id=event.id if event else None,
-        actor=actor, action="access_denied", target=action[:200],
-        detail={"requested_event_id": str(event_id)},
-    ))
+    session.add(
+        AuditEvent(
+            tenant_id=event.tenant_id if event else None,
+            event_id=event.id if event else None,
+            actor=actor,
+            action="access_denied",
+            target=action[:200],
+            detail={"requested_event_id": str(event_id)},
+        )
+    )

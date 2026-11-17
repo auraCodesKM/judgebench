@@ -44,53 +44,92 @@ def parse_response(raw: dict[str, Any], questions: dict[str, str]) -> ParsedResp
 
 def _team(session: Session, event: Event, name: str) -> Team:
     key = " ".join(name.casefold().split())
-    session.execute(insert(Team).values(id=uuid.uuid4(), tenant_id=event.tenant_id, event_id=event.id,
-                                        name=name, name_key=key)
-                    .on_conflict_do_nothing(index_elements=["event_id", "name_key"]))
+    session.execute(
+        insert(Team)
+        .values(id=uuid.uuid4(), tenant_id=event.tenant_id, event_id=event.id, name=name, name_key=key)
+        .on_conflict_do_nothing(index_elements=["event_id", "name_key"])
+    )
     return session.scalars(select(Team).where(Team.event_id == event.id, Team.name_key == key)).one()
 
 
-def ingest_responses(session: Session, event: Event, raw_responses: list[dict[str, Any]],
-                     questions: dict[str, str]) -> list[uuid.UUID]:
+def ingest_responses(
+    session: Session, event: Event, raw_responses: list[dict[str, Any]], questions: dict[str, str]
+) -> list[uuid.UUID]:
     """Insert unseen responses as RECEIVED submissions. Returns new submission IDs. Caller commits."""
     created: list[uuid.UUID] = []
     for raw in sorted(raw_responses, key=lambda r: r.get("lastSubmittedTime") or r.get("createTime", "")):
         parsed = parse_response(raw, questions)
-        exists = session.scalar(select(Submission.id).where(
-            Submission.event_id == event.id, Submission.form_response_id == parsed.response_id))
+        exists = session.scalar(
+            select(Submission.id).where(
+                Submission.event_id == event.id, Submission.form_response_id == parsed.response_id
+            )
+        )
         if exists:
             continue
         a = parsed.answers
         team = _team(session, event, (a.get("team_name") or "Unnamed team")[:200])
         version = (session.scalar(select(func.max(Submission.version)).where(Submission.team_id == team.id)) or 0) + 1
         sub_id = uuid.uuid4()
-        inserted = session.execute(insert(Submission).values(
-            id=sub_id, tenant_id=event.tenant_id, event_id=event.id, team_id=team.id,
-            form_response_id=parsed.response_id, version=version, submitted_at=parsed.submitted_at,
-            repo_url=a.get("repo_url", ""), demo_url=a.get("demo_url") or None,
-            deck_url=a.get("deck_url") or None, deployed_url=a.get("deployed_url") or None,
-            claimed_categories=a.get("categories", []), form_answers=a, state=State.RECEIVED,
-        ).on_conflict_do_nothing(index_elements=["event_id", "form_response_id"]).returning(Submission.id)
+        inserted = session.execute(
+            insert(Submission)
+            .values(
+                id=sub_id,
+                tenant_id=event.tenant_id,
+                event_id=event.id,
+                team_id=team.id,
+                form_response_id=parsed.response_id,
+                version=version,
+                submitted_at=parsed.submitted_at,
+                repo_url=a.get("repo_url", ""),
+                demo_url=a.get("demo_url") or None,
+                deck_url=a.get("deck_url") or None,
+                deployed_url=a.get("deployed_url") or None,
+                claimed_categories=a.get("categories", []),
+                form_answers=a,
+                state=State.RECEIVED,
+            )
+            .on_conflict_do_nothing(index_elements=["event_id", "form_response_id"])
+            .returning(Submission.id)
         ).scalar_one_or_none()
         if inserted is None:
             continue  # a concurrent poll won the race
         late = event.deadline is not None and parsed.submitted_at > event.deadline
         scope = {"tenant_id": event.tenant_id, "event_id": event.id, "submission_id": sub_id}
-        session.add(AuditEvent(**scope, actor="system:ingest", action=f"state:{State.RECEIVED}",
-                               target=parsed.response_id, detail={"version": version, "late": late}))
-        session.add(Notification(**scope, stage=State.RECEIVED.value,
-                                 text=f"Submission received (v{version}){' after the deadline' if late else ''}"))
+        session.add(
+            AuditEvent(
+                **scope,
+                actor="system:ingest",
+                action=f"state:{State.RECEIVED}",
+                target=parsed.response_id,
+                detail={"version": version, "late": late},
+            )
+        )
+        session.add(
+            Notification(
+                **scope,
+                stage=State.RECEIVED.value,
+                text=f"Submission received (v{version}){' after the deadline' if late else ''}",
+            )
+        )
         session.flush()
         if parse_repo_url(a.get("repo_url", "")) is None:
-            record_failure(session, sub_id, "invalid_repo_url", retryable=False,
-                           detail="expected https://github.com/<owner>/<repo>")
+            record_failure(
+                session,
+                sub_id,
+                "invalid_repo_url",
+                retryable=False,
+                detail="expected https://github.com/<owner>/<repo>",
+            )
         created.append(sub_id)
     return created
 
 
 def forms_integration(session: Session, event: Event) -> EventIntegration:
-    return session.scalars(select(EventIntegration).where(
-        EventIntegration.event_id == event.id, EventIntegration.provider == "google_forms")).one()
+    return session.scalars(
+        select(EventIntegration).where(
+            EventIntegration.event_id == event.id, EventIntegration.provider == "google_forms"
+        )
+    ).one()
 
 
 def sync_event(session: Session, event: Event, fetch: Any) -> list[uuid.UUID]:
