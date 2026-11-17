@@ -1,0 +1,11 @@
+# Copy to events/<slug>.yaml and edit. Validated by judgebench.event_config.EventConfig.
+slug: campus-ai-2026
+name: Campus AI Hackathon
+organisation: Campus AI Club
+deadline: 2026-11-23T12:00:00+05:30     # timezone required
+telegram_chat_id: -1001234567890         # private notifications channel (see M0_SETUP.md §3)
+# rubric: omitted -> default AI hackathon rubric (§8), weights must sum to 100
+judges:
+  - name: Judge One
+    email: judge.one@example.com         # gets edit access to the judging workbook only
+    telegram_user_id: 123456789          # numeric ID; removing a judge here revokes access on next setup
