@@ -1,0 +1,91 @@
+# CI/CD: lint + types + full test suite (incl. §14.2 security suite against real Postgres),
+# then build/push one image per service, then (only with _DEPLOY=true) deploy to Cloud Run.
+#
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_DEPLOY=false
+#
+# Runs as a dedicated build SA, never the default compute SA (§14.1 rule 4).
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/jb-build@$PROJECT_ID.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _REGION: asia-south1
+  _REPO: judgebench
+  _DEPLOY: "false"
+  _SQL_INSTANCE: judgebench-pg  # Cloud SQL instance name
+
+steps:
+  - id: test-db
+    name: gcr.io/cloud-builders/docker
+    args: [run, -d, --name=testdb, --network=cloudbuild,
+           -e, POSTGRES_USER=judgebench, -e, POSTGRES_PASSWORD=judgebench, -e, POSTGRES_DB=judgebench,
+           pgvector/pgvector:pg16]
+
+  - id: test
+    name: ghcr.io/astral-sh/uv:0.11.19-python3.12-bookworm-slim
+    entrypoint: bash
+    env:
+      - TEST_DATABASE_URL=postgresql+psycopg://judgebench:judgebench@testdb:5432/judgebench_test
+      - DATABASE_URL=postgresql+psycopg://judgebench:judgebench@testdb:5432/judgebench
+    args:
+      - -ceu
+      - |
+        uv sync --frozen --all-extras
+        for i in $$(seq 1 30); do
+          uv run python -c "import psycopg; psycopg.connect('host=testdb user=judgebench password=judgebench dbname=postgres')" 2>/dev/null && break
+          sleep 2
+        done
+        uv run ruff check src tests
+        uv run ruff format --check src tests
+        uv run mypy
+        uv run pytest -q
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        for svc in api worker telegram probe; do
+          docker build -f deploy/$$svc.Dockerfile \
+            -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/$$svc:$SHORT_SHA . &
+        done
+        wait
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        for svc in api worker telegram probe; do
+          docker push ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/$$svc:$SHORT_SHA
+        done
+
+  # Deploy is wired but runs only after M1 passes locally (_DEPLOY=true).
+  # Every service: own SA, no public access. Probe: SA with NO IAM roles, no secrets, no DB.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        [ "${_DEPLOY}" = "true" ] || { echo "skip deploy"; exit 0; }
+        IMG=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}
+        SQL=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE}
+        common="--region=${_REGION} --no-allow-unauthenticated --quiet"
+        gcloud run deploy jb-probe --image=$$IMG/probe:$SHORT_SHA $$common \
+          --service-account=jb-probe@$PROJECT_ID.iam.gserviceaccount.com --memory=512Mi --concurrency=10
+        gcloud run deploy jb-worker --image=$$IMG/worker:$SHORT_SHA $$common \
+          --service-account=jb-worker@$PROJECT_ID.iam.gserviceaccount.com --memory=2Gi --timeout=900 \
+          --add-cloudsql-instances=$$SQL \
+          --set-secrets=DATABASE_URL=database-url:latest,GITHUB_TOKEN=github-token:latest
+        gcloud run deploy jb-api --image=$$IMG/api:$SHORT_SHA $$common \
+          --service-account=jb-api@$PROJECT_ID.iam.gserviceaccount.com \
+          --add-cloudsql-instances=$$SQL \
+          --set-env-vars=GOOGLE_TOKEN_FILE=/secrets/google/token.json \
+          --set-secrets=DATABASE_URL=database-url:latest,/secrets/google/token.json=google-oauth-token:latest
+        gcloud run deploy jb-telegram --image=$$IMG/telegram:$SHORT_SHA $$common \
+          --service-account=jb-telegram@$PROJECT_ID.iam.gserviceaccount.com \
+          --add-cloudsql-instances=$$SQL \
+          --set-secrets=DATABASE_URL=database-url:latest,TELEGRAM_BOT_TOKEN=telegram-bot-token:latest
