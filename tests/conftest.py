@@ -68,9 +68,9 @@ def make_team(s: Session, event: m.Event, name: str) -> m.Team:
     return team
 
 
-def make_submission(s: Session, team: m.Team, response_id: str = "r1") -> m.Submission:
+def make_submission(s: Session, team: m.Team, response_id: str = "r1", version: int = 1) -> m.Submission:
     sub = m.Submission(tenant_id=team.tenant_id, event_id=team.event_id, team_id=team.id,
-                       form_response_id=response_id, version=1,
+                       form_response_id=response_id, version=version,
                        repo_url="https://github.com/acme/demo", form_answers={},
                        submitted_at=m.utcnow())
     s.add(sub)

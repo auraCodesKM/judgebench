@@ -50,7 +50,6 @@ def transition(session: Session, submission_id: uuid.UUID, expected: State, targ
         update(Submission)
         .where(Submission.id == submission_id, Submission.state == expected)
         .values(**values)
-        .execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:  # type: ignore[attr-defined]
         raise StaleState(f"{submission_id} not in {expected}")
@@ -88,7 +87,6 @@ def record_failure(session: Session, submission_id: uuid.UUID, category: str, *,
         update(Submission).where(Submission.id == submission_id)
         .values(error_category=category, error_detail=(detail or "")[:2000], retryable=retryable,
                 lease_until=None)
-        .execution_options(synchronize_session=False)
     )
     if retryable and sub.attempts < max_attempts:
         return  # stays in its state; next claim retries it
