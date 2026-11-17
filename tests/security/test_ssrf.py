@@ -189,3 +189,21 @@ def test_response_size_cap_is_passed_to_transport() -> None:
     client = GuardedClient(resolve=net.resolve, send=spy, limits=ProbeLimits(max_response_bytes=1234))
     client.request("GET", "https://a.example/")
     assert seen == [1234]
+
+
+# --- probe service (real resolver, no network needed for blocked cases) -------------
+
+
+def test_probe_service_blocks_metadata_and_private() -> None:
+    from fastapi.testclient import TestClient
+
+    from judgebench.probe.app import app
+
+    resp = TestClient(app).post("/probe", json={"requests": [
+        {"url": "http://169.254.169.254/computeMetadata/v1/"},
+        {"url": "https://metadata.google.internal/"},
+        {"url": "https://127.0.0.1/"},
+        {"url": "https://[::1]/"},
+    ]})
+    assert resp.status_code == 200
+    assert all(o["blocked"] and o["status"] is None for o in resp.json())
