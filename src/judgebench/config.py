@@ -26,6 +26,8 @@ class Settings:
     pubsub_topic: str | None
     google_cloud_project: str | None
     submission_token_budget: int
+    embedding_model: str
+    google_cloud_location: str
 
 
 @cache
@@ -46,4 +48,6 @@ def settings() -> Settings:
         pubsub_topic=env("PUBSUB_TOPIC") or None,
         google_cloud_project=env("GOOGLE_CLOUD_PROJECT") or None,
         submission_token_budget=int(env("SUBMISSION_TOKEN_BUDGET", "400000")),
+        embedding_model=env("EMBEDDING_MODEL", "gemini-embedding-001"),
+        google_cloud_location=env("GOOGLE_CLOUD_LOCATION", "global"),
     )

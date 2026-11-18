@@ -51,6 +51,7 @@ from judgebench.db.models import (
 from judgebench.errors import StageError
 from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
+from judgebench.retrieval import Embedder, HashingEmbedder, Piece, chunk_repository, default_embedder, index_pieces
 from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
 from judgebench.worker.extract import extract_tarball
@@ -74,11 +75,18 @@ class Deps:
     strong: team.Model
     scratch: Path | None = None
     ci_reader: Callable[[GitHub], CiReader] = CiReader
+    embedder: Embedder = field(default_factory=HashingEmbedder)
 
     @classmethod
     def from_settings(cls) -> "Deps":
         cfg = settings()
-        return cls(GitHub(cfg.github_token), probe_client(cfg.probe_url), cfg.gemini_model, cfg.gemini_model_strong)
+        return cls(
+            GitHub(cfg.github_token),
+            probe_client(cfg.probe_url),
+            cfg.gemini_model,
+            cfg.gemini_model_strong,
+            embedder=default_embedder(),
+        )
 
 
 @dataclass
@@ -319,6 +327,7 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         findings = inspect_repository(snap)
         ci_f, ci_status, ci_details = ci_findings(deps.ci_reader(deps.github), ref, sub.commit_sha or "", root)
         readme = (root / profile.readme).read_text(errors="replace") if profile.readme else ""
+        pieces = chunk_repository(root)
     live_f, live_status, live_details = live_check_findings(deps.probe, sub.deployed_url, answers.get("sample_request"))
 
     form_text = "\n".join(
@@ -380,6 +389,12 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     ]:
         session.add(BehaviourCheck(**_scope(sub), type=kind, status=status.value, details=details))
     sub.source_hashes = {**sub.source_hashes, "evidence_attempt": attempt}
+    session.flush()
+    evidence_pieces = [
+        Piece("evidence", f"evidence:{e.id}", f"{e.key} [{e.status}] {e.source_locator}: {e.observation}")
+        for e in session.scalars(select(Evidence).where(Evidence.stage_attempt == attempt))
+    ]
+    index_pieces(session, sub, pieces + evidence_pieces, deps.embedder)  # for the Judge Copilot (§11.3)
     ci_suffix = ", marked NOT_VERIFIABLE, score not reduced" if ci_status == CheckStatus.NOT_VERIFIABLE else ""
     _notify(session, sub, "CI", f"CI: {ci_details['summary']}{ci_suffix}")
     _notify(session, sub, "LIVE_CHECK", f"Live check: {live_details['summary']}")

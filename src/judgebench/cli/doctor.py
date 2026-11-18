@@ -298,6 +298,30 @@ def check_vertex() -> list[Result]:
                 "the model/region may not accept YouTube URLs; try GOOGLE_CLOUD_LOCATION=global or another model",
             )
         )
+    try:
+        from judgebench.db.models import EMBED_DIM
+        from judgebench.retrieval import VertexEmbedder
+
+        [vec] = VertexEmbedder(
+            cfg.google_cloud_project, os.environ.get("GOOGLE_CLOUD_LOCATION", "global"), cfg.embedding_model
+        ).embed(["retrieval check"], query=True)
+        out.append(
+            _ok("vertex_embeddings", f"{cfg.embedding_model}: {len(vec)} dims")
+            if len(vec) == EMBED_DIM
+            else _fail(
+                "vertex_embeddings",
+                f"{cfg.embedding_model} returned {len(vec)} dims, need {EMBED_DIM}",
+                "use a model that supports output_dimensionality=768 (EMBEDDING_MODEL)",
+            )
+        )
+    except Exception as exc:
+        out.append(
+            _fail(
+                "vertex_embeddings",
+                f"{cfg.embedding_model}: {str(exc)[:120]}",
+                "set EMBEDDING_MODEL to an available Vertex embedding model (e.g. gemini-embedding-001)",
+            )
+        )
     return out
 
 
