@@ -82,3 +82,11 @@ def test_bad_tool_arguments_fail_the_case(session_factory: sessionmaker[Session]
     # and the tool itself refused to read outside the snapshot
     run = session.query(m.AgentRun).filter_by(agent_name="claim_investigator").one()
     assert "no such file in this submission" in run.trace[0]["observation"]
+
+
+def test_bench_runner_smoke(session_factory: sessionmaker[Session]) -> None:
+    from judgebench import bench
+
+    metrics, reports = bench.run(session_factory, deps(repos.ALPHA_RAG, fake()), runs=1)
+    assert metrics.queries == 16 and len(reports) == 6
+    assert all(r.runs == 1 and not r.failures for r in reports)

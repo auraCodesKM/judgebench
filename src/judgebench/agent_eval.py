@@ -81,11 +81,13 @@ def _trajectory(expected: list[str], actual: list[dict[str, Any]]) -> float:
     return float(result.overall_score or 0.0)
 
 
-def _args_valid(calls: list[dict[str, Any]], files: set[str]) -> list[bool]:
+def _args_valid(calls: list[dict[str, Any]], files: set[str] | None) -> list[bool]:
+    """files=None: trust the tool's own check (it refuses anything outside the snapshot)."""
     out = []
     for c in calls:
         if c["tool"] == "read_file":
-            out.append(c["args"].get("path") in files)
+            refused = "no such file in this submission" in str(c.get("observation", ""))
+            out.append(c["args"].get("path") in files if files is not None else not refused)
         elif c["tool"] == "list_evidence":
             out.append(c["args"].get("source_type", "") in SOURCE_TYPES)
         else:
@@ -98,7 +100,7 @@ def evaluate_case(
     deps: Deps,
     case: Case,
     submissions: list[uuid.UUID],
-    repo_files: set[str],
+    repo_files: set[str] | None,
     workers: int = 4,
 ) -> CaseReport:
     """`submissions` are N fresh RECEIVED submissions of the same repo; they are processed concurrently."""

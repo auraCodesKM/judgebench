@@ -144,6 +144,20 @@ def cmd_usage(args: argparse.Namespace) -> None:
         print(usage.render(*usage.report(s, event.id)))
 
 
+def cmd_bench(args: argparse.Namespace) -> None:
+    from judgebench import agent_eval, bench
+    from judgebench.worker.stages import Deps
+
+    deps = Deps.from_settings()
+    metrics, reports = bench.run(sessions(), deps, runs=args.runs, k=args.k)
+    print(
+        f"Retrieval ({deps.embedder.model}, {metrics.queries} labelled queries): "
+        f"Recall@{metrics.k}={metrics.recall_at_k} MRR={metrics.mrr}\n"
+    )
+    print(f"Agents ({settings().gemini_model} / {settings().gemini_model_strong}, {args.runs} runs per repo)")
+    print(agent_eval.render(reports))
+
+
 def cmd_doctor(_: argparse.Namespace) -> None:
     from judgebench.cli import doctor
 
@@ -165,6 +179,10 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(required=True)
     sub.add_parser("auth-google").set_defaults(fn=cmd_auth_google)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
+    p = sub.add_parser("bench")
+    p.add_argument("--runs", type=int, default=3)
+    p.add_argument("--k", type=int, default=3)
+    p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("usage")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_usage)

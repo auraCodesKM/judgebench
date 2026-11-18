@@ -1,0 +1,26 @@
+# Demo cast (§20.1): synthetic public repos under auraCodesKM, labelled for retrieval and agent tests.
+# relevant = file path prefixes that answer the query.
+repos:
+  alpha:   {url: https://github.com/auraCodesKM/team-alpha-docqa,   specialists: [rag_specialist, generic_specialist]}
+  beta:    {url: https://github.com/auraCodesKM/team-beta-insight,  specialists: [rag_specialist, generic_specialist]}
+  gamma:   {url: https://github.com/auraCodesKM/team-gamma-planner, specialists: [agentic_specialist, generic_specialist]}
+  delta:   {url: https://github.com/auraCodesKM/team-delta-vision,  specialists: [ml_specialist, generic_specialist]}
+  epsilon: {url: https://github.com/auraCodesKM/team-epsilon-notes, specialists: [generic_specialist]}
+  zeta:    {url: https://github.com/auraCodesKM/team-zeta-assistant, specialists: [generic_specialist]}
+queries:
+  - {repo: alpha, q: "where is retrieval called when a question comes in?", relevant: [app/rag.py, app/main.py]}
+  - {repo: alpha, q: "how is recall computed on held-out questions", relevant: [eval/eval_retrieval.py]}
+  - {repo: alpha, q: "what does the API return besides the answer", relevant: [app/rag.py, app/main.py]}
+  - {repo: alpha, q: "BM25 scoring parameters", relevant: [app/bm25.py]}
+  - {repo: alpha, q: "what tests run in CI", relevant: [tests/test_rag.py, .github/workflows/test.yml]}
+  - {repo: beta, q: "is the Chroma retriever used by the API", relevant: [retriever.py, app.py]}
+  - {repo: beta, q: "why is the answer slow", relevant: [app.py]}
+  - {repo: beta, q: "what accuracy do they claim", relevant: [README.md]}
+  - {repo: gamma, q: "how do the researcher and writer agents connect", relevant: [graph.py]}
+  - {repo: gamma, q: "recursion limit and checkpointer", relevant: [graph.py]}
+  - {repo: gamma, q: "how is the budget split per day", relevant: [tools.py]}
+  - {repo: delta, q: "does training need a GPU", relevant: [train.py, README.md]}
+  - {repo: delta, q: "how is validation accuracy computed", relevant: [train.py]}
+  - {repo: delta, q: "which model writes the advice", relevant: [advise.py]}
+  - {repo: epsilon, q: "how are flashcards generated", relevant: [notes.py]}
+  - {repo: zeta, q: "what does the CI workflow actually run", relevant: [.github/workflows/ci.yml]}
