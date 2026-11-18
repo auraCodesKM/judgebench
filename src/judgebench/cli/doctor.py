@@ -346,9 +346,9 @@ def _check_models(client: Any, prefix: str, embeddings: bool) -> list[Result]:
         from judgebench.db.models import EMBED_DIM
         from judgebench.retrieval import VertexEmbedder
 
-        [vec] = VertexEmbedder(
-            cfg.google_cloud_project or "", cfg.google_cloud_location, cfg.embedding_model
-        ).embed(["retrieval check"], query=True)
+        [vec] = VertexEmbedder(cfg.google_cloud_project or "", cfg.google_cloud_location, cfg.embedding_model).embed(
+            ["retrieval check"], query=True
+        )
         out.append(
             _ok("vertex_embeddings", f"{cfg.embedding_model}: {len(vec)} dims")
             if len(vec) == EMBED_DIM

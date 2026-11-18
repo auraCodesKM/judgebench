@@ -6,6 +6,7 @@
   status <slug>             submissions and their states
   doctor                    check every credential and dependency
   usage <slug>              tokens, cost, latency per submission and agent
+  explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
   bench [--runs N]          demo-cast benchmark (retrieval + agent trajectories)
   copilot-poll              local Judge Copilot via getUpdates
@@ -157,6 +158,14 @@ def cmd_agreement(args: argparse.Namespace) -> None:
         print(agreement.render(*agreement.report(s, event.id)))
 
 
+def cmd_explain(args: argparse.Namespace) -> None:
+    from judgebench.explain import explain
+
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        print(explain(s, event.id))
+
+
 def cmd_bench(args: argparse.Namespace) -> None:
     from judgebench import agent_eval, bench
     from judgebench.worker.stages import Deps
@@ -236,6 +245,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--k", type=int, default=3)
     p.set_defaults(fn=cmd_bench)
+    p = sub.add_parser("explain")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_explain)
     p = sub.add_parser("agreement")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_agreement)
