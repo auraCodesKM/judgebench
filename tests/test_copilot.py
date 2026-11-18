@@ -50,3 +50,17 @@ def test_non_judge_is_refused_and_logged(session: Session, judged: m.Submission)
     reply = Copilot(HashingEmbedder(), fake()).handle(session, 999, "/teams")
     assert reply.startswith("You are not an active judge")
     assert session.query(m.AuditEvent).filter_by(action="access_denied").count() == 1
+
+
+def test_internal_drain_fails_closed_on_cloud_run_without_auth_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    import judgebench.telegram.app as tg
+
+    monkeypatch.setenv("K_SERVICE", "jb-telegram")
+    monkeypatch.delenv("SCHEDULER_SA_EMAIL", raising=False)
+    assert TestClient(tg.app).post("/internal/notifications/drain").status_code == 503
+    monkeypatch.setenv("SCHEDULER_SA_EMAIL", "jb-scheduler@p.iam.gserviceaccount.com")
+    monkeypatch.setenv("INTERNAL_AUDIENCE", "https://jb-telegram.example")
+    r = TestClient(tg.app).post("/internal/notifications/drain", headers={"Authorization": "Bearer forged"})
+    assert r.status_code == 401

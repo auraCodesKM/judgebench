@@ -9,10 +9,11 @@ in the webhook response body, so no extra API call is made with the token.
 """
 
 import hmac
+import os
 from functools import cache
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from judgebench import tracing
 from judgebench.config import settings
@@ -52,7 +53,28 @@ def webhook(
     return {"method": "sendMessage", "chat_id": chat["id"], "text": reply, "disable_web_page_preview": True}
 
 
-@app.post("/internal/notifications/drain")
+def require_scheduler(authorization: str | None = Header(default=None)) -> None:
+    """This service is public (Telegram can't send Google ID tokens), so internal routes verify the
+    Cloud Scheduler OIDC token themselves: signature, audience and the scheduler SA's email."""
+    expected = os.environ.get("SCHEDULER_SA_EMAIL")
+    if not expected:
+        if os.environ.get("K_SERVICE"):  # on Cloud Run without config: fail closed
+            raise HTTPException(status_code=503)
+        return  # local dev
+    from google.auth.transport.requests import Request
+    from google.oauth2 import id_token
+
+    try:
+        claims = id_token.verify_oauth2_token(
+            (authorization or "").removeprefix("Bearer "), Request(), audience=os.environ["INTERNAL_AUDIENCE"]
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=401) from exc
+    if claims.get("email") != expected or not claims.get("email_verified"):
+        raise HTTPException(status_code=403)
+
+
+@app.post("/internal/notifications/drain", dependencies=[Depends(require_scheduler)])
 def drain_outbox() -> dict[str, int]:
     token = settings().telegram_bot_token
     if not token:

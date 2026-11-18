@@ -75,7 +75,7 @@ steps:
         [ "${_DEPLOY}" = "true" ] || { echo "skip deploy"; exit 0; }
         IMG=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}
         SQL=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE}
-        common="--region=${_REGION} --no-allow-unauthenticated --quiet"
+        common="--region=${_REGION} --no-allow-unauthenticated --quiet --update-env-vars=OTEL_TRACES_EXPORTER=gcp"
         gcloud run deploy jb-probe --image=$$IMG/probe:$SHORT_SHA $$common \
           --service-account=jb-probe@$PROJECT_ID.iam.gserviceaccount.com --memory=512Mi --concurrency=10
         PROBE_URL=$$(gcloud run services describe jb-probe --region=${_REGION} --format='value(status.url)')
@@ -89,7 +89,11 @@ steps:
           --add-cloudsql-instances=$$SQL \
           --set-env-vars=GOOGLE_TOKEN_FILE=/secrets/google/token.json,PUBSUB_TOPIC=projects/$PROJECT_ID/topics/${_PUBSUB_TOPIC} \
           --set-secrets=DATABASE_URL=database-url:latest,/secrets/google/token.json=google-oauth-token:latest
-        gcloud run deploy jb-telegram --image=$$IMG/telegram:$SHORT_SHA $$common \
+        # Public: Telegram can't send Google ID tokens. The webhook checks Telegram's secret header;
+        # /internal/* verifies the Scheduler's OIDC token in-app (fails closed if unconfigured).
+        TG_URL=$$(gcloud run services describe jb-telegram --region=${_REGION} --format='value(status.url)' 2>/dev/null || true)
+        gcloud run deploy jb-telegram --image=$$IMG/telegram:$SHORT_SHA --region=${_REGION} --allow-unauthenticated --quiet \
           --service-account=jb-telegram@$PROJECT_ID.iam.gserviceaccount.com \
           --add-cloudsql-instances=$$SQL \
-          --set-secrets=DATABASE_URL=database-url:latest,TELEGRAM_BOT_TOKEN=telegram-bot-token:latest
+          --set-env-vars=OTEL_TRACES_EXPORTER=gcp,SCHEDULER_SA_EMAIL=jb-scheduler@$PROJECT_ID.iam.gserviceaccount.com,INTERNAL_AUDIENCE=$$TG_URL,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
+          --set-secrets=DATABASE_URL=database-url:latest,TELEGRAM_BOT_TOKEN=telegram-bot-token:latest,TELEGRAM_WEBHOOK_SECRET=telegram-webhook-secret:latest
