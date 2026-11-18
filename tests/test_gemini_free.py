@@ -41,8 +41,9 @@ def test_allow_list(url: str | None, ok: bool) -> None:
 
 
 def test_free_model_fails_closed_without_an_allowed_repo(free: None) -> None:
-    model = modes.configured("gemini-2.5-flash")
-    assert isinstance(model, modes.FreeGemini) and modes.model_label(model).endswith("(Gemini API free tier)")
+    model = modes.configured("gemini-2.5-flash")  # GEMINI_MODEL is for Vertex; free tier uses GEMINI_FREE_MODEL
+    assert isinstance(model, modes.FreeGemini)
+    assert modes.model_label(model) == "gemini-3.5-flash-lite (Gemini API free tier)"
 
     async def call() -> Any:
         async for r in model.generate_content_async(LlmRequest(model="gemini-2.5-flash")):

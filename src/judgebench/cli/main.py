@@ -191,6 +191,8 @@ def cmd_bench(args: argparse.Namespace) -> None:
     )
     if settings().llm_mode == "offline":
         print("Agents: MOCK (LLM_MODE=offline). Routing, tools and budgets are real; scores and variance are not.")
+    elif settings().llm_mode == "gemini_free":
+        print(f"Agents: Gemini API free tier: {settings().gemini_free_model} ({args.runs} run(s) per repo)")
     else:
         print(f"Agents ({settings().gemini_model} / {settings().gemini_model_strong}, {args.runs} runs per repo)")
     print(agent_eval.render(reports))

@@ -95,8 +95,10 @@ def configured(name: str) -> "str | FakeLlm | FreeGemini":
     if cfg.llm_mode == "gemini_free":
         if not cfg.gemini_api_key:
             raise RuntimeError("LLM_MODE=gemini_free needs GEMINI_API_KEY (see M0_SETUP.md item 9)")
-        return FreeGemini(
-            model=name, client_kwargs={"api_key": cfg.gemini_api_key, "vertexai": False}, retry_options=FREE_RETRY
+        return FreeGemini(  # one free-tier model for every agent: GEMINI_FREE_MODEL, not GEMINI_MODEL (Vertex)
+            model=cfg.gemini_free_model,
+            client_kwargs={"api_key": cfg.gemini_api_key, "vertexai": False},
+            retry_options=FREE_RETRY,
         )
     return offline_model()
 

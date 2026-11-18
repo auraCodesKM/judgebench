@@ -281,7 +281,12 @@ def _check_models(client: Any, prefix: str, embeddings: bool) -> list[Result]:
 
     cfg = settings()
     out = []
-    for label, model in {"model": cfg.gemini_model, "model_strong": cfg.gemini_model_strong}.items():
+    models = (
+        {"model": cfg.gemini_free_model}
+        if prefix == "gemini_free"
+        else {"model": cfg.gemini_model, "model_strong": cfg.gemini_model_strong}
+    )
+    for label, model in models.items():
         if label == "model_strong" and model == cfg.gemini_model:
             continue
         try:
@@ -298,7 +303,7 @@ def _check_models(client: Any, prefix: str, embeddings: bool) -> list[Result]:
                     + ", ".join(_available_models(client)[:8]),
                 )
             )
-    model = cfg.gemini_model
+    model = models["model"]
     try:
         schema = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
         r = client.models.generate_content(
