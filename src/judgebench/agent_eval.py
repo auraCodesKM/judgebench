@@ -43,12 +43,13 @@ class CaseReport:
     routing_ok: float
     trajectory_score: float
     tool_args_valid: float
-    max_tool_calls: int
+    max_tool_calls: int  # executed (refused attempts are counted separately)
     max_tokens: int
     total_mean: float
     total_variance: float
     criterion_variance: dict[str, float] = field(default_factory=dict)
     failures: list[str] = field(default_factory=list)
+    refused: int = 0  # tool calls the budget refused (the agent asked for more than its budget)
 
     @property
     def passed(self) -> bool:
@@ -119,6 +120,7 @@ def evaluate_case(
         t.join()
 
     routing, traj, args_ok, tool_counts, tokens, totals = [], [], [], [], [], []
+    refused = 0
     per_crit: dict[str, list[float]] = {}
     failures = []
     expected_agents = [*case.expected_specialists, "claim_investigator", "rubric_evaluator"]
@@ -138,7 +140,9 @@ def evaluate_case(
             tools = audit.detail.get("tools", [])
             traj.append(_trajectory(case.expected_tools, tools))
             args_ok += _args_valid(tools, repo_files)
-            tool_counts.append(len(tools))
+            executed = [t for t in tools if not str(t.get("observation", "")).startswith("refused:")]
+            refused += len(tools) - len(executed)
+            tool_counts.append(len(executed))
             tokens.append(
                 sum(
                     r.prompt_tokens + r.output_tokens
@@ -161,18 +165,19 @@ def evaluate_case(
         round(statistics.pvariance(totals), 3) if totals else 0.0,
         {k: round(statistics.pvariance(v), 3) for k, v in sorted(per_crit.items())},
         failures,
+        refused,
     )
 
 
 def render(reports: list[CaseReport]) -> str:
     lines = [
-        f"{'case':12} {'runs':>4} {'route':>6} {'traj':>5} {'args':>5} {'tools':>5} {'tokens':>7} "
+        f"{'case':12} {'runs':>4} {'route':>6} {'traj':>5} {'args':>5} {'tools':>5} {'refused':>7} {'tokens':>7} "
         f"{'total':>6} {'var':>6}  verdict"
     ]
     for r in reports:
         lines.append(
             f"{r.name:12} {r.runs:>4} {r.routing_ok:>6.2f} {r.trajectory_score:>5.2f} {r.tool_args_valid:>5.2f} "
-            f"{r.max_tool_calls:>5} {r.max_tokens:>7} {r.total_mean:>6.1f} {r.total_variance:>6.2f}  "
+            f"{r.max_tool_calls:>5} {r.refused:>7} {r.max_tokens:>7} {r.total_mean:>6.1f} {r.total_variance:>6.2f}  "
             f"{'PASS' if r.passed else 'FAIL'}"
         )
         worst = max(r.criterion_variance.items(), key=lambda kv: kv[1], default=None)

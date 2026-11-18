@@ -182,10 +182,25 @@ def run(root: BaseAgent, state: dict[str, Any]) -> dict[str, Any]:
         ):
             pass
         final = await sessions.get_session(app_name=app, user_id="worker", session_id=s.id)
+        await _close_model_clients(root)
         return dict(final.state) if final else {}
 
     with tracing.span(f"agent.{root.name}", agent=root.name):
         return asyncio.run(go())
+
+
+async def _close_model_clients(root: BaseAgent) -> None:
+    """Close each Gemini client inside the loop that opened it; otherwise its aclose() runs after
+    asyncio.run() has closed the loop and logs "Event loop is closed" for every agent run."""
+    from google.adk.models.google_llm import Gemini
+
+    stack = [root]
+    while stack:
+        agent = stack.pop()
+        stack += list(agent.sub_agents)
+        model = getattr(agent, "model", None)
+        if isinstance(model, Gemini):  # api_client is cached per loop: this is the one this run used
+            await model.api_client.aio.aclose()
 
 
 def parse_json(text: Any) -> Any:

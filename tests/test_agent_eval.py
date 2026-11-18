@@ -105,3 +105,25 @@ def test_bench_only_and_cast_answers(session_factory: sessionmaker[Session], mon
     with session_factory() as s:
         sub = s.query(m.Submission).filter_by(form_response_id="beta-0").one()
         assert sub.deployed_url == "https://beta.example.app/" and sub.form_answers["sample_request"] == "GET /health"
+
+
+def test_refused_tool_calls_are_reported_not_counted_as_executed(
+    session_factory: sessionmaker[Session], session: Session
+) -> None:
+    from judgebench.agents.team import INVESTIGATOR_TOOL_BUDGET
+
+    def greedy(s: Seen) -> Any:  # keeps asking for tools past its budget
+        if s.turn < INVESTIGATOR_TOOL_BUDGET + 2:
+            return types.FunctionCall(name="search_code", args={"text": f"q{s.turn}"})
+        return {"verdicts": []}
+
+    case = Case("alpha-greedy", ["rag_specialist", "generic_specialist"], ["search_code"])
+    report = evaluate_case(
+        session_factory,
+        deps(repos.ALPHA_RAG, fake(claim_investigator=greedy)),
+        case,
+        [submit(session, "greedy run").id],
+        set(repos.ALPHA_RAG),
+    )
+    assert report.max_tool_calls == INVESTIGATOR_TOOL_BUDGET and report.refused == 2
+    assert report.passed  # the budget held; asking for more is reported, not a failure
