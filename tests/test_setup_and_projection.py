@@ -1,6 +1,5 @@
 """Event setup (idempotent, judge revocation) and the Leaderboard projection."""
 
-from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import pytest
@@ -9,9 +8,10 @@ from sqlalchemy.orm import Session
 from judgebench.cli.setup import sync_judges, upsert_event
 from judgebench.db import models as m
 from judgebench.event_config import EventConfig, Judge
-from judgebench.google.projection import publish_leaderboard
+from judgebench.google.sheets_sync import sync_workbook
 from judgebench.workflow import State, transition
 from tests.conftest import make_submission, make_team
+from tests.test_sheets_sync import FakeSheet
 
 pytestmark = pytest.mark.db
 
@@ -77,9 +77,8 @@ def test_leaderboard_shows_latest_version_and_is_written_raw(session: Session) -
     )
     session.commit()
 
-    writes: list[tuple[str, str, Sequence[Sequence[str | int]]]] = []
-    assert publish_leaderboard(session, event, lambda *a: writes.append(a))
-    [(sid, tab, rows)] = writes
-    assert (sid, tab) == ("S", "Leaderboard")
+    sheet = FakeSheet()
+    assert "Leaderboard" in sync_workbook(session, event, sheet.read, sheet.write).written_tabs
+    rows = sheet.tabs["Leaderboard"][1:]
     assert [r[:5] for r in rows] == [['=HYPERLINK("http://x")', 2, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]]
-    assert not publish_leaderboard(session, event, lambda *a: writes.append(a))  # unchanged -> no write
+    assert sync_workbook(session, event, sheet.read, sheet.write).written_tabs == []  # unchanged -> no write

@@ -14,7 +14,7 @@ from judgebench.config import settings
 from judgebench.db.models import Event
 from judgebench.db.session import sessions
 from judgebench.google import workspace
-from judgebench.google.projection import publish_leaderboard
+from judgebench.google.sheets_sync import sync_workbook
 from judgebench.pubsub import no_publisher, rest_publisher
 
 app = FastAPI(title="api", docs_url=None, redoc_url=None)
@@ -42,11 +42,14 @@ def sync(event_id: uuid.UUID) -> dict[str, int]:
     return {"new_submissions": len(new)}
 
 
-@app.post("/events/{event_id}/leaderboard/publish")
-def publish(event_id: uuid.UUID) -> dict[str, bool]:
+@app.post("/events/{event_id}/sheets/sync")
+def sheets_sync(event_id: uuid.UUID) -> dict[str, object]:
     g = workspace.session(Path(settings().google_token_file))
     with sessions()() as s:
-        wrote = publish_leaderboard(
-            s, _event(s, event_id), lambda sid, tab, rows: workspace.write_tab(g, sid, tab, rows)
+        r = sync_workbook(
+            s,
+            _event(s, event_id),
+            lambda sid, tab: workspace.read_tab(g, sid, tab),
+            lambda sid, tab, rows: workspace.write_tab(g, sid, tab, rows),
         )
-    return {"written": wrote}
+    return {"written_tabs": r.written_tabs, "overrides": r.overrides, "reviews": r.reviews}

@@ -66,7 +66,7 @@ def _step(name: str, fn: object) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     from judgebench.api.ingest import sync_event
     from judgebench.google import workspace
-    from judgebench.google.projection import publish_leaderboard
+    from judgebench.google.sheets_sync import sync_workbook
     from judgebench.telegram.notify import TelegramBot, drain
     from judgebench.worker.stages import Deps, run_next
 
@@ -97,8 +97,14 @@ def cmd_run(args: argparse.Namespace) -> None:
     def publish() -> None:
         with factory() as s:
             for event in s.scalars(select(Event).where(Event.status == "active")).all():
-                if publish_leaderboard(s, event, lambda sid, tab, rows: workspace.write_tab(google, sid, tab, rows)):
-                    log.info("%s: leaderboard updated", event.slug)
+                r = sync_workbook(
+                    s,
+                    event,
+                    lambda sid, tab: workspace.read_tab(google, sid, tab),
+                    lambda sid, tab, rows: workspace.write_tab(google, sid, tab, rows),
+                )
+                if r.written_tabs or r.overrides:
+                    log.info("%s: sheets %s, %d judge override(s) kept", event.slug, r.written_tabs, r.overrides)
 
     while True:
         for name, fn in [("poll", poll), ("notify", notify), ("work", work), ("notify", notify), ("publish", publish)]:

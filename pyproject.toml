@@ -22,6 +22,9 @@ app = [
     "google-auth-oauthlib>=1.2",
     "requests>=2.32",
     "google-adk>=2.14",
+    "pgvector>=0.3",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-gcp-trace>=1.7",
 ]
 
 [project.scripts]

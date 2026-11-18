@@ -12,13 +12,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
@@ -26,12 +29,13 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 
 from judgebench.states import State
 
 Json = JSON().with_variant(JSONB(), "postgresql")
+EMBED_DIM = 768
 
 
 def utcnow() -> datetime:
@@ -344,7 +348,10 @@ class JudgeReview(EventOwned, Base):
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     evaluation_id: Mapped[uuid.UUID] = mapped_column(index=True)
-    judge_membership_id: Mapped[uuid.UUID] = mapped_column()
+    judge_membership_id: Mapped[uuid.UUID | None] = mapped_column()  # None when entered in the Sheet
+    judge_label: Mapped[str | None] = mapped_column(String(200))  # free-text "Judge" column from the Sheet
+    source: Mapped[str] = mapped_column(String(20), default="sheet")
+    criterion_id: Mapped[str | None] = mapped_column(String(60))
     human_scores: Mapped[dict[str, Any]] = mapped_column(default=dict)
     comments: Mapped[str | None] = mapped_column(Text)
     override_reason: Mapped[str | None] = mapped_column(Text)
@@ -373,6 +380,38 @@ class UsageRecord(EventOwned, Base):
     output_tokens: Mapped[int] = mapped_column(default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     latency_ms: Mapped[int | None]
+    stage: Mapped[str | None] = mapped_column(String(30))
+    agent: Mapped[str | None] = mapped_column(String(60))
+    tokens_per_sec: Mapped[float | None] = mapped_column(Float)  # output tokens / call latency
+    created_at: Mapped[datetime] = _created()
+
+
+class Chunk(EventOwned, Base):
+    """Retrieval unit for hybrid search (§11.3): repo text windows, README sections, evidence.
+    Every query filters on event_id (and usually submission_id) before ranking (§11.4)."""
+
+    __tablename__ = "chunks"
+    _extra_args = (
+        _child_of("submissions", "submission_id"),
+        UniqueConstraint("submission_id", "locator", "content_sha256"),
+        Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+    id: Mapped[uuid.UUID] = _pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column()
+    submission_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    source_type: Mapped[str] = mapped_column(String(20))  # code | documentation | evidence
+    locator: Mapped[str] = mapped_column(Text)  # "app/rag.py#L1-L40", "README.md#3", "evidence:<uuid>"
+    content: Mapped[str] = mapped_column(Text)
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed("to_tsvector('simple', content)", persisted=True))
+    embedding: Mapped[Any] = mapped_column(Vector(EMBED_DIM))
+    embedding_model: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = _created()
 
 

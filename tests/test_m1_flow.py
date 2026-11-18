@@ -3,8 +3,6 @@ Sheets): a Form submission produces "received" and "profiled" Telegram messages 
 Leaderboard row. The real-API version of this is the manual check in M0_SETUP.md."""
 
 import json
-from collections.abc import Sequence
-from typing import Any
 
 import httpx
 import pytest
@@ -12,11 +10,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from judgebench.api.ingest import sync_event
 from judgebench.db import models as m
-from judgebench.google.projection import publish_leaderboard
+from judgebench.google.sheets_sync import sync_workbook
 from judgebench.telegram.notify import TelegramBot, drain
 from judgebench.worker.pipeline import run_profile_stage
 from tests.conftest import make_event
 from tests.test_ingest import QUESTIONS, response
+from tests.test_sheets_sync import FakeSheet
 from tests.test_worker_pipeline import FakeGitHub
 
 pytestmark = pytest.mark.db
@@ -43,7 +42,7 @@ def test_form_submission_to_telegram_and_leaderboard(session_factory: sessionmak
         return httpx.Response(200, json={"ok": True, "result": {"message_id": len(telegram)}})
 
     bot = TelegramBot("t", httpx.Client(transport=httpx.MockTransport(tg)))
-    sheet: list[Sequence[Sequence[Any]]] = []
+    sheet = FakeSheet()
 
     # one loop iteration of `judgebench run`, twice (the second must be a no-op)
     for _ in range(2):
@@ -52,12 +51,12 @@ def test_form_submission_to_telegram_and_leaderboard(session_factory: sessionmak
         while run_profile_stage(session_factory, FakeGitHub()):
             pass
         drain(session, bot)
-        publish_leaderboard(session, event, lambda sid, tab, rows: sheet.append(rows))
+        sync_workbook(session, event, sheet.read, sheet.write)
 
     assert len(telegram) == 2  # exactly one message per stage, nothing re-sent
     assert telegram[0] == "[Team Alpha] Submission received (v1)"
     assert telegram[1].startswith("[Team Alpha] Profiled (commit 3f2c1ab): Python")
     assert telegram[1].endswith("-> adapters: Agentic, RAG")
-    assert len(sheet) == 1  # second iteration changed nothing, so no second write
-    [row] = sheet[0]
+    assert sheet.writes.count("Leaderboard") == 1  # second iteration changed nothing, so no second write
+    [_, row] = sheet.tabs["Leaderboard"]
     assert row[:5] == ["Team Alpha", 1, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]

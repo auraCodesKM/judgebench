@@ -164,6 +164,7 @@ def list_responses(s: AuthorizedSession, form_id: str, since: str | None) -> lis
 
 # --- Sheets / Drive -------------------------------------------------------------------
 
+KEY = "Row key (system)"  # stable row identity; lets judge edits survive re-sorting and refreshes
 TABS: dict[str, list[str]] = {
     "Leaderboard": [
         "Team",
@@ -174,12 +175,24 @@ TABS: dict[str, list[str]] = {
         "Score",
         "Confidence",
         "Updated (UTC)",
+        KEY,
     ],
-    "Evaluations": ["Team", "Criterion", "Score", "Max", "Rationale", "Evidence IDs", "Confidence"],
-    "Evidence": ["Team", "Evidence ID", "Claim", "Observation", "Source", "Status", "Confidence"],
+    "Evaluations": [
+        "Team",
+        "Criterion",
+        "Score",
+        "Max",
+        "Rationale",
+        "Evidence IDs",
+        "Confidence",
+        "Score before critic",
+        "Critic note",
+        KEY,
+    ],
+    "Evidence": ["Team", "Evidence ID", "Claim / finding", "Observation", "Source", "Status", "Confidence", KEY],
     "Judge Reviews": ["Team", "Judge", "Criterion", "Human score", "Comment", "Override reason"],
-    "Suggested Questions": ["Team", "Question", "Why"],
-    "Audit Log": ["Time (UTC)", "Team", "Action", "Detail"],
+    "Suggested Questions": ["Team", "Question", "From", KEY],
+    "Audit Log": ["Time (UTC)", "Team", "Action", "Detail", KEY],
 }
 JUDGE_EDITABLE = {"Judge Reviews"}
 
@@ -237,6 +250,14 @@ def share_with(s: AuthorizedSession, file_id: str, email: str) -> None:
         params={"sendNotificationEmail": "true"},
         json={"role": "writer", "type": "user", "emailAddress": email},
     )
+
+
+def read_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str) -> list[list[Any]]:
+    """Unformatted values, so numbers come back as numbers and compare cleanly."""
+    data = _call(
+        s, "GET", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A1:Z", params={"valueRenderOption": "UNFORMATTED_VALUE"}
+    )
+    return list(data.get("values", []))
 
 
 def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[str | int | float]]) -> None:
