@@ -133,4 +133,20 @@ uv run --env-file .env judgebench run --interval 15    # Telegram: "Event ready"
 uv run --env-file .env judgebench status <slug>
 ```
 
-Cloud Run deploy steps (service accounts, secrets) live in `deploy/README.md`.
+## Verify M2 + M3 against real services (after all 8 items)
+
+```bash
+uv run --env-file .env judgebench doctor          # every line PASS (pubsub SKIP is fine locally)
+uv run --env-file .env judgebench run --interval 15
+# Submit the Form with https://github.com/auraCodesKM/team-alpha-docqa (+ its demo video and deployed URL if any).
+# Telegram: received -> profiled -> CI -> live check -> demo -> claims -> critic -> ready -> cost.
+# Sheet: Leaderboard, Evaluations, Evidence, Suggested Questions, Audit Log fill in. Edit a score, it survives.
+
+# Judge Copilot without a public URL: add your Telegram user ID as a judge in the event file, re-run setup, then
+uv run --env-file .env judgebench copilot-poll     # message the bot privately: /teams, /team Team Alpha, /ask ...
+
+uv run --env-file .env judgebench usage <slug>     # tokens, USD, p50/p95, tokens/sec per submission and agent
+uv run --env-file .env judgebench bench --runs 3   # demo-cast benchmark: Recall@k/MRR + agent variance (real Gemini)
+```
+
+Cloud Run deploy steps (service accounts, secrets, Pub/Sub, tracing, webhook) live in `deploy/README.md`.

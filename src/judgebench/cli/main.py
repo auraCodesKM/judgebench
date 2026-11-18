@@ -158,6 +158,41 @@ def cmd_bench(args: argparse.Namespace) -> None:
     print(agent_eval.render(reports))
 
 
+def cmd_copilot_poll(_: argparse.Namespace) -> None:
+    """Local dev: run the Judge Copilot with getUpdates long polling instead of a public webhook.
+    Same handler and the same membership checks; private chats only."""
+    import httpx
+
+    from judgebench.retrieval import default_embedder
+    from judgebench.telegram.copilot import Copilot
+    from judgebench.telegram.notify import TelegramBot
+
+    token = settings().telegram_bot_token
+    if not token:
+        sys.exit("TELEGRAM_BOT_TOKEN is not set")
+    bot, copilot = TelegramBot(token), Copilot(default_embedder(), settings().gemini_model)
+    base, offset = f"https://api.telegram.org/bot{token}", 0
+    httpx.post(f"{base}/deleteWebhook", timeout=15)  # getUpdates and webhooks are mutually exclusive
+    print("Copilot polling. Message the bot privately: /help")
+    while True:
+        try:
+            updates = httpx.get(
+                f"{base}/getUpdates",
+                params={"offset": offset, "timeout": 50, "allowed_updates": '["message"]'},
+                timeout=60,
+            ).json()
+        except httpx.HTTPError:
+            continue
+        for u in updates.get("result", []):
+            offset = u["update_id"] + 1
+            msg = u.get("message") or {}
+            if (msg.get("chat") or {}).get("type") != "private" or not isinstance(msg.get("text"), str):
+                continue
+            with sessions()() as s:
+                reply = copilot.handle(s, msg["from"]["id"], msg["text"][:2000])
+            bot.send(msg["chat"]["id"], reply)
+
+
 def cmd_doctor(_: argparse.Namespace) -> None:
     from judgebench.cli import doctor
 
@@ -179,6 +214,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(required=True)
     sub.add_parser("auth-google").set_defaults(fn=cmd_auth_google)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
+    sub.add_parser("copilot-poll").set_defaults(fn=cmd_copilot_poll)
     p = sub.add_parser("bench")
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--k", type=int, default=3)
