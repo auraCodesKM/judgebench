@@ -174,6 +174,7 @@ TABS: dict[str, list[str]] = {
         "Detected categories",
         "Score",
         "Confidence",
+        "Evaluated by",
         "Updated (UTC)",
         KEY,
     ],

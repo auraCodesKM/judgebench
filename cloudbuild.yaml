@@ -14,6 +14,7 @@ substitutions:
   _DEPLOY: "false"
   _SQL_INSTANCE: judgebench-pg  # Cloud SQL instance name
   _GEMINI_MODEL: gemini-2.5-flash
+  _LLM_MODE: offline  # vertex = real Gemini (billed); offline = mock agents, $0
   _PUBSUB_TOPIC: evaluate
 
 steps:
@@ -82,7 +83,7 @@ steps:
         gcloud run deploy jb-worker --image=$$IMG/worker:$SHORT_SHA $$common \
           --service-account=jb-worker@$PROJECT_ID.iam.gserviceaccount.com --memory=2Gi --timeout=900 \
           --add-cloudsql-instances=$$SQL \
-          --set-env-vars=PROBE_URL=$$PROBE_URL,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
+          --set-env-vars=LLM_MODE=${_LLM_MODE},PROBE_URL=$$PROBE_URL,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
           --set-secrets=DATABASE_URL=database-url:latest,GITHUB_TOKEN=github-token:latest
         gcloud run deploy jb-api --image=$$IMG/api:$SHORT_SHA $$common \
           --service-account=jb-api@$PROJECT_ID.iam.gserviceaccount.com \
@@ -95,5 +96,5 @@ steps:
         gcloud run deploy jb-telegram --image=$$IMG/telegram:$SHORT_SHA --region=${_REGION} --allow-unauthenticated --quiet \
           --service-account=jb-telegram@$PROJECT_ID.iam.gserviceaccount.com \
           --add-cloudsql-instances=$$SQL \
-          --set-env-vars=OTEL_TRACES_EXPORTER=gcp,SCHEDULER_SA_EMAIL=jb-scheduler@$PROJECT_ID.iam.gserviceaccount.com,INTERNAL_AUDIENCE=$$TG_URL,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
+          --set-env-vars=OTEL_TRACES_EXPORTER=gcp,SCHEDULER_SA_EMAIL=jb-scheduler@$PROJECT_ID.iam.gserviceaccount.com,INTERNAL_AUDIENCE=$$TG_URL,LLM_MODE=${_LLM_MODE},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
           --set-secrets=DATABASE_URL=database-url:latest,TELEGRAM_BOT_TOKEN=telegram-bot-token:latest,TELEGRAM_WEBHOOK_SECRET=telegram-webhook-secret:latest

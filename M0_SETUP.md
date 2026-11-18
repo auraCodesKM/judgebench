@@ -1,6 +1,8 @@
 # M0 setup checklist: things only you can do (~30 min)
 
 **[M1]** blocks M1 verification. **[M2]** blocks only M2 real-API runs (tests use fakes).
+**[billed]** costs money. The default `LLM_MODE=offline` needs none of these: the whole pipeline runs
+with mock agents (labelled MOCK everywhere) at $0. Forms, Sheets, Drive, Telegram and GitHub are free.
 Secrets go in `.env` (from `.env.example`) or `.secrets/`. Both are gitignored. Never paste a secret into chat or a commit.
 
 ```bash
@@ -23,7 +25,7 @@ export ACC=<billing-account-id>   # from step 2
 - **Don't:** create or download service-account JSON keys, at any point.
 - **Check:** `gcloud auth list --filter=status:ACTIVE --format='value(account)'` prints your email.
 
-### 2. GCP project + billing + budget alert (5 min) [M1]
+### 2. GCP project (+ billing and budget alert only for [billed] items) (5 min) [M1]
 - **Get:** https://console.cloud.google.com/billing to find your billing account ID (`XXXXXX-XXXXXX-XXXXXX`), then:
   ```bash
   gcloud projects create $P --name=judgebench
@@ -35,6 +37,7 @@ export ACC=<billing-account-id>   # from step 2
     --filter-projects=projects/$P
   ```
 - **.env:** `GOOGLE_CLOUD_PROJECT=<your-project-id>`
+- **Without billing:** create the project and skip the `billing` and `budgets` lines; Forms/Sheets/Drive work.
 - **Don't:** treat the budget as a cap. It only emails you; spend isn't stopped (§12.4).
 - **Check:** `gcloud billing projects describe $P --format='value(billingEnabled)'` prints `True`.
 
@@ -94,7 +97,8 @@ gcloud services enable forms.googleapis.com sheets.googleapis.com drive.googleap
 - **Why:** without it GitHub allows 60 req/hour. CI-run reading in M2 needs the authenticated 5,000/hour.
 - **Check:** `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit | python3 -c "import sys,json;print(json.load(sys.stdin)['resources']['core']['limit'])"` prints `5000`.
 
-### 7. Vertex AI (Gemini) via Application Default Credentials (3 min) [M2]
+### 7. Vertex AI (Gemini) via Application Default Credentials (3 min) [M2] [billed]
+Only for `LLM_MODE=vertex`. Needs billing on the project; every Gemini and embedding call is charged.
 - **Do:** `gcloud auth application-default login`, then `gcloud auth application-default set-quota-project $P`.
 - **.env:**
   ```
@@ -135,8 +139,11 @@ uv run --env-file .env judgebench status <slug>
 
 ## Verify M2 + M3 against real services (after all 8 items)
 
+With the default `LLM_MODE=offline` this runs against real GitHub, Forms, Sheets and Telegram, with mock
+agents: scores are placeholders and say MOCK. Set `LLM_MODE=vertex` (billed) for real model judgements.
+
 ```bash
-uv run --env-file .env judgebench doctor          # every line PASS (pubsub SKIP is fine locally)
+uv run --env-file .env judgebench doctor          # every line PASS (pubsub and, offline, vertex SKIP are fine)
 uv run --env-file .env judgebench run --interval 15
 # Submit the Form with https://github.com/auraCodesKM/team-alpha-docqa (+ its demo video and deployed URL if any).
 # Telegram: received -> profiled -> CI -> live check -> demo -> claims -> critic -> ready -> cost.

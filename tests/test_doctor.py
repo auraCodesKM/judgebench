@@ -19,6 +19,7 @@ def test_missing_credentials_fail_with_fixes(monkeypatch: pytest.MonkeyPatch, tm
             "google_client_secrets_file": str(tmp_path / "none2.json"),
             "probe_url": "inprocess",
             "pubsub_topic": None,
+            "llm_mode": "vertex",
         }
     )
     monkeypatch.setattr(doctor, "settings", lambda: fake)
@@ -30,6 +31,16 @@ def test_missing_credentials_fail_with_fixes(monkeypatch: pytest.MonkeyPatch, tm
     assert by["telegram_bot"].status == "FAIL" and "BotFather" in by["telegram_bot"].fix
     assert by["vertex"].status == "FAIL" and "GOOGLE_CLOUD_PROJECT" in by["vertex"].fix
     assert by["probe"].status == "PASS" and by["pubsub"].status == "SKIP"
+
+
+def test_offline_mode_never_calls_vertex(monkeypatch: pytest.MonkeyPatch) -> None:
+    from judgebench import config
+
+    monkeypatch.setattr(
+        doctor, "settings", lambda: config.Settings(**{**config.settings().__dict__, "llm_mode": "offline"})
+    )
+    monkeypatch.setattr("google.genai.Client", lambda **_: pytest.fail("offline doctor built a Vertex client"))
+    assert [(r.name, r.status) for r in doctor.check_vertex()] == [("vertex", "SKIP")]
 
 
 def test_a_crashing_check_does_not_hide_others() -> None:

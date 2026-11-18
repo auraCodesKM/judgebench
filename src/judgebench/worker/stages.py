@@ -31,6 +31,7 @@ from judgebench.adapters.inspectors import inspect_repository
 from judgebench.adapters.profiler import RepositoryProfile
 from judgebench.adapters.wiring import CodeIndex
 from judgebench.agents import runtime, team
+from judgebench.agents.offline import configured, is_mock
 from judgebench.agents.runtime import BudgetExceeded, Meter, fence
 from judgebench.agents.scoring import Score, apply_critique, apply_rules, overall_confidence, validate_rubric
 from judgebench.agents.views import ClaimView, EvidenceView, claims_block, rubric_block
@@ -84,8 +85,8 @@ class Deps:
         return cls(
             GitHub(cfg.github_token),
             probe_client(cfg.probe_url),
-            cfg.gemini_model,
-            cfg.gemini_model_strong,
+            configured(cfg.gemini_model),
+            configured(cfg.gemini_model_strong),
             embedder=default_embedder(),
         )
 
@@ -626,11 +627,13 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         _notify(session, sub, "CRITIC", "Critic: all scores supported by cited evidence")
     max_total = sum(c.weight for c in cfg.rubric)
     flagged = sum(s.flagged for s in scores)
+    mock = is_mock(evaluation.model)
     _notify(
         session,
         sub,
         "READY",
-        f"Evaluation ready: {total:g}/{max_total} (confidence {confidence}). "
+        ("MOCK evaluation (offline, no model; scores are placeholders): " if mock else "")
+        + f"Evaluation ready: {total:g}/{max_total} (confidence {confidence}). "
         f"{len(questions)} suggested question{'s' if len(questions) != 1 else ''}"
         + (f", {flagged} score{'s' if flagged != 1 else ''} flagged for judges." if flagged else "."),
     )
@@ -644,8 +647,12 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         session,
         sub,
         "COST",
-        f"Cost: {_fmt_tokens(int(usage[0]))} tokens, ${float(usage[1]):.2f}, "
-        f"end-to-end {_fmt_duration(sub.created_at)}",
+        (
+            f"Cost: $0.00, offline mock (no model calls), end-to-end {_fmt_duration(sub.created_at)}"
+            if mock
+            else f"Cost: {_fmt_tokens(int(usage[0]))} tokens, ${float(usage[1]):.2f}, "
+            f"end-to-end {_fmt_duration(sub.created_at)}"
+        ),
     )
     transition(
         session,

@@ -83,11 +83,13 @@ def default_embedder() -> Embedder:
     from judgebench.config import settings
 
     cfg = settings()
-    if cfg.google_cloud_project:
+    if cfg.llm_mode == "vertex" and cfg.google_cloud_project:
         return VertexEmbedder(cfg.google_cloud_project, cfg.google_cloud_location, cfg.embedding_model)
     import logging
 
-    logging.getLogger(__name__).warning("GOOGLE_CLOUD_PROJECT unset: using the lexical hashing embedder")
+    logging.getLogger(__name__).warning(
+        "LLM_MODE=offline or GOOGLE_CLOUD_PROJECT unset: using the lexical hashing embedder"
+    )
     return HashingEmbedder()
 
 

@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from judgebench.agents.offline import is_mock
 from judgebench.db.models import (
     AuditEvent,
     CriterionScore,
@@ -152,6 +153,7 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
             ", ".join(CATEGORY_LABELS.get(c, c) for c in sorted(cats)),
             ev.total_score if ev and ev.total_score is not None else "",
             (ev.confidence or "") if ev else "",
+            ("MOCK (offline, no model)" if is_mock(ev.model) else ev.model or "") if ev else "",
             sub.updated_at.strftime("%Y-%m-%d %H:%M"),
         ]
         short = {}

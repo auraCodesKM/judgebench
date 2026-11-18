@@ -163,6 +163,7 @@ def cmd_copilot_poll(_: argparse.Namespace) -> None:
     Same handler and the same membership checks; private chats only."""
     import httpx
 
+    from judgebench.agents.offline import configured
     from judgebench.retrieval import default_embedder
     from judgebench.telegram.copilot import Copilot
     from judgebench.telegram.notify import TelegramBot
@@ -170,7 +171,7 @@ def cmd_copilot_poll(_: argparse.Namespace) -> None:
     token = settings().telegram_bot_token
     if not token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set")
-    bot, copilot = TelegramBot(token), Copilot(default_embedder(), settings().gemini_model)
+    bot, copilot = TelegramBot(token), Copilot(default_embedder(), configured(settings().gemini_model))
     base, offset = f"https://api.telegram.org/bot{token}", 0
     httpx.post(f"{base}/deleteWebhook", timeout=15)  # getUpdates and webhooks are mutually exclusive
     print("Copilot polling. Message the bot privately: /help")

@@ -1,5 +1,6 @@
 """`judgebench doctor`: check every credential and external dependency, print PASS/FAIL/SKIP and
-the fix for each failure. Read-only, except a few tiny Gemini calls (<1k tokens in total).
+the fix for each failure. Read-only. Only with LLM_MODE=vertex does it make a few tiny, billed Gemini
+calls (<1k tokens in total); in the default offline mode it never calls a model.
 Never prints secrets: tokens are shown as their last 4 characters at most."""
 
 import json
@@ -228,6 +229,8 @@ def check_github() -> list[Result]:
 
 def check_vertex() -> list[Result]:
     cfg = settings()
+    if cfg.llm_mode != "vertex":
+        return [_skip("vertex", "LLM_MODE=offline: mock agents + lexical embedder, no model calls, $0")]
     if not cfg.google_cloud_project:
         return [
             _fail(
@@ -263,7 +266,9 @@ def check_vertex() -> list[Result]:
                 _fail(
                     f"vertex_{label}",
                     f"{model}: {str(exc)[:120]}",
-                    f"set GEMINI_MODEL{'_STRONG' if label == 'model_strong' else ''} to an available model: "
+                    BILLING_FIX
+                    if _billing(exc)
+                    else f"set GEMINI_MODEL{'_STRONG' if label == 'model_strong' else ''} to an available model: "
                     + ", ".join(_available_models(client)[:8]),
                 )
             )
@@ -282,7 +287,13 @@ def check_vertex() -> list[Result]:
             else _fail("vertex_structured_output", f"unexpected: {(r.text or '')[:80]}", "try a newer Flash model")
         )
     except Exception as exc:
-        out.append(_fail("vertex_structured_output", str(exc)[:120], "try a newer Flash model"))
+        out.append(
+            _fail(
+                "vertex_structured_output",
+                str(exc)[:120],
+                BILLING_FIX if _billing(exc) else "try a newer Flash model",
+            )
+        )
     try:
         video = types.Part(
             file_data=types.FileData(file_uri=PUBLIC_TEST_VIDEO, mime_type="video/*"),
@@ -295,7 +306,9 @@ def check_vertex() -> list[Result]:
             _fail(
                 "vertex_youtube_input",
                 str(exc)[:120],
-                "the model/region may not accept YouTube URLs; try GOOGLE_CLOUD_LOCATION=global or another model",
+                BILLING_FIX
+                if _billing(exc)
+                else "the model/region may not accept YouTube URLs; try GOOGLE_CLOUD_LOCATION=global or another model",
             )
         )
     try:
@@ -319,10 +332,19 @@ def check_vertex() -> list[Result]:
             _fail(
                 "vertex_embeddings",
                 f"{cfg.embedding_model}: {str(exc)[:120]}",
-                "set EMBEDDING_MODEL to an available Vertex embedding model (e.g. gemini-embedding-001)",
+                BILLING_FIX
+                if _billing(exc)
+                else "set EMBEDDING_MODEL to an available Vertex embedding model (e.g. gemini-embedding-001)",
             )
         )
     return out
+
+
+def _billing(exc: Exception) -> bool:
+    return "billing" in str(exc).lower()
+
+
+BILLING_FIX = "billing is not enabled on this project: keep LLM_MODE=offline for $0 runs (Vertex calls are billed)"
 
 
 def _available_models(client: Any) -> list[str]:
