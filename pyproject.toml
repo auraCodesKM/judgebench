@@ -21,6 +21,7 @@ app = [
     "google-auth>=2.30",
     "google-auth-oauthlib>=1.2",
     "requests>=2.32",
+    "google-adk>=2.14",
 ]
 
 [project.scripts]

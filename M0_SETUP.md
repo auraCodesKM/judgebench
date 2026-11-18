@@ -1,154 +1,136 @@
-# M0 setup
+# M0 setup checklist: things only you can do (~30 min)
 
-Everything M1 needs that can't be created from code. Do Part A now; Part B is for the Cloud Run
-deploy that follows M1. Keep every secret in `.secrets/` or `.env`; both are gitignored.
+**[M1]** blocks M1 verification. **[M2]** blocks only M2 real-API runs (tests use fakes).
+Secrets go in `.env` (from `.env.example`) or `.secrets/`. Both are gitignored. Never paste a secret into chat or a commit.
 
 ```bash
-mkdir -p .secrets && chmod 700 .secrets
-cp .env.example .env
+cd judgebench && cp .env.example .env && mkdir -p .secrets && chmod 700 .secrets
+uv sync --all-extras
+```
+
+Set these two shell variables first. Every check below uses them:
+```bash
+export P=<your-project-id>   # lowercase, 6-30 chars, globally unique, e.g. judgebench-kt-2026
+export ACC=<billing-account-id>   # from step 2
 ```
 
 ---
 
-## Part A: needed for M1 (local)
+### 1. gcloud CLI + login (3 min) [M1]
+- **Get:** https://cloud.google.com/sdk/docs/install (macOS: `brew install --cask google-cloud-sdk`).
+- **Do:** `gcloud auth login` (your own Google account).
+- **.env:** nothing.
+- **Don't:** create or download service-account JSON keys, at any point.
+- **Check:** `gcloud auth list --filter=status:ACTIVE --format='value(account)'` prints your email.
 
-### 1. GCP project with budget alert
+### 2. GCP project + billing + budget alert (5 min) [M1]
+- **Get:** https://console.cloud.google.com/billing to find your billing account ID (`XXXXXX-XXXXXX-XXXXXX`), then:
+  ```bash
+  gcloud projects create $P --name=judgebench
+  gcloud billing projects link $P --billing-account=$ACC
+  gcloud config set project $P
+  gcloud services enable billingbudgets.googleapis.com
+  gcloud billing budgets create --billing-account=$ACC --display-name=judgebench \
+    --budget-amount=20USD --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 \
+    --filter-projects=projects/$P
+  ```
+- **.env:** `GOOGLE_CLOUD_PROJECT=<your-project-id>`
+- **Don't:** treat the budget as a cap. It only emails you; spend isn't stopped (§12.4).
+- **Check:** `gcloud billing projects describe $P --format='value(billingEnabled)'` prints `True`.
 
+### 3. Enable APIs (2 min): Forms/Sheets/Drive [M1], rest [M2]/deploy
 ```bash
-gcloud auth login
-gcloud projects create <PROJECT_ID> --name="judgebench"
-gcloud billing accounts list                       # note ACCOUNT_ID
-gcloud billing projects link <PROJECT_ID> --billing-account=<ACCOUNT_ID>
-gcloud config set project <PROJECT_ID>
-
-# M1 needs only Forms/Sheets/Drive. The rest are enabled now so deploy isn't blocked later.
 gcloud services enable forms.googleapis.com sheets.googleapis.com drive.googleapis.com \
-  run.googleapis.com sqladmin.googleapis.com secretmanager.googleapis.com \
-  artifactregistry.googleapis.com cloudbuild.googleapis.com cloudscheduler.googleapis.com \
-  pubsub.googleapis.com aiplatform.googleapis.com iam.googleapis.com billingbudgets.googleapis.com
-
-gcloud billing budgets create --billing-account=<ACCOUNT_ID> --display-name="judgebench" \
-  --budget-amount=20USD --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 \
-  --filter-projects=projects/<PROJECT_ID>
+  aiplatform.googleapis.com run.googleapis.com sqladmin.googleapis.com \
+  secretmanager.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  pubsub.googleapis.com cloudtrace.googleapis.com cloudscheduler.googleapis.com iam.googleapis.com
 ```
+- **.env:** nothing.
+- **Check:** `gcloud services list --enabled --format='value(config.name)' | grep -cE '^(forms|sheets|drive|aiplatform|run|sqladmin|secretmanager|cloudbuild|artifactregistry|pubsub|cloudtrace|cloudscheduler|iam)\.googleapis\.com$'` prints `13`.
 
-A budget alert emails you. It does **not** cap spend (§12.4).
+### 4. OAuth client in Testing mode + yourself as test user (8 min) [M1]
+- **Where:** https://console.cloud.google.com/auth/overview?project=<your-project-id>, i.e. **APIs & Services → Google Auth Platform**.
+  1. **Branding:** app name `judgebench-dev`, your support email, your developer contact email. Save.
+  2. **Audience:** User type **External**. Leave **Publishing status = Testing**. Under **Test users → Add users**, add your own Google account (the one that will own the Forms and Sheets).
+  3. **Data access → Add or remove scopes:** add exactly these three, then **Update → Save**:
+     - `https://www.googleapis.com/auth/drive.file`
+     - `https://www.googleapis.com/auth/forms.body`
+     - `https://www.googleapis.com/auth/forms.responses.readonly`
+  4. **Clients → Create client:** type **Desktop app**, name `judgebench-cli`. **Download JSON** and save it as `.secrets/oauth_client.json`.
+  5. Run `uv run --env-file .env judgebench auth-google`. A browser opens: sign in as the test user. The "unverified app" warning is expected; click **Continue**.
+- **.env:** `GOOGLE_CLIENT_SECRETS_FILE=.secrets/oauth_client.json`, `GOOGLE_TOKEN_FILE=.secrets/google.token.json` (already the defaults).
+- **Don't pick:**
+  - **Publish app** or **In production**: that triggers Google verification.
+  - Full `.../auth/drive` or `.../auth/spreadsheets`: `drive.file` covers the files the app creates.
+  - Client type **Web application**.
+  - **Internal**: only available for Workspace orgs.
+- **Note:** Testing-mode refresh tokens **expire after 7 days**. Re-run `auth-google` on **21 Nov**, and whenever you see `invalid_grant`.
+- **Check:** `uv run --env-file .env python -c "from pathlib import Path; from judgebench.google.workspace import session; print(sorted(session(Path('.secrets/google.token.json')).credentials.scopes))"` prints the three scopes.
 
-### 2. OAuth client (Testing mode)
+### 5. Telegram bot + private channel + chat ID (5 min) [M1]
+- **Bot:** in Telegram open **@BotFather** → `/newbot` → name + username (must end in `bot`). Copy the token. Then `/setjoingroups` → your bot → **Disable**.
+- **Channel:** Telegram → **New Channel** → name → **Private Channel**. Then **Channel info → Administrators → Add Admin →** your bot. Grant **Post Messages** only.
+- **Chat ID:** post any message in the channel, then:
+  ```bash
+  set -a; source .env; set +a
+  curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | python3 -c "import sys,json;[print(u['channel_post']['chat']['id']) for u in json.load(sys.stdin)['result'] if 'channel_post' in u]"
+  ```
+- **.env:** `TELEGRAM_BOT_TOKEN=<token>`. The chat ID (`-100…`) goes in `events/<slug>.yaml` as `telegram_chat_id`, **not** `.env`.
+- **Don't:**
+  - Make the channel Public.
+  - Give the bot Add Admins, Delete Messages, Invite Users or Manage Channel.
+  - Share the token. If it leaks: BotFather → `/revoke`.
+- **Check:** `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getChat?chat_id=<chat-id>"` returns `"ok":true` and your channel title.
 
-In Cloud Console (project `<PROJECT_ID>`): **APIs & Services → Google Auth Platform**.
+### 6. GitHub fine-grained token, public repos read-only (3 min): [M1] recommended, [M2] required
+- **Where:** https://github.com/settings/personal-access-tokens/new, i.e. **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+  - Name `judgebench-worker`, expiration **30 days**, resource owner: **you**.
+  - **Repository access: Public repositories.** Permissions: **leave all at "No access"**. Public read is implicit.
+- **.env:** `GITHUB_TOKEN=github_pat_...`
+- **Don't pick:**
+  - **All repositories** or **Only select repositories**: that grants private-repo access.
+  - Any repository or account permission.
+  - A **classic** token.
+- **Why:** without it GitHub allows 60 req/hour. CI-run reading in M2 needs the authenticated 5,000/hour.
+- **Check:** `curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit | python3 -c "import sys,json;print(json.load(sys.stdin)['resources']['core']['limit'])"` prints `5000`.
 
-1. **Branding**: set the app name (use the working name, not your real product name), your support email and the developer contact email. Save.
-2. **Audience**:
-   - User type: **External**. Publishing status: **Testing**. Do not publish.
-   - **Test users → Add users**: add the Google account that will own the Forms and Sheets.
-3. **Data access → Add or remove scopes**: paste these three and save:
-   - `https://www.googleapis.com/auth/drive.file`
-   - `https://www.googleapis.com/auth/forms.body`
-   - `https://www.googleapis.com/auth/forms.responses.readonly`
-4. **Clients → Create client**: type **Desktop app**, name `judgebench-cli`. Click **Download JSON** and save it as `.secrets/oauth_client.json`.
-5. Authorise once. A browser opens; sign in as the test user and accept:
-   ```bash
-   uv sync --all-extras
-   uv run --env-file .env judgebench auth-google      # writes .secrets/google.token.json
-   ```
+### 7. Vertex AI (Gemini) via Application Default Credentials (3 min) [M2]
+- **Do:** `gcloud auth application-default login`, then `gcloud auth application-default set-quota-project $P`.
+- **.env:**
+  ```
+  GOOGLE_GENAI_USE_VERTEXAI=true
+  GOOGLE_CLOUD_PROJECT=<your-project-id>
+  GOOGLE_CLOUD_LOCATION=global
+  GEMINI_MODEL=gemini-2.5-flash
+  ```
+  If the check below returns 404 for the model, open **Vertex AI → Model Garden** (https://console.cloud.google.com/vertex-ai/model-garden), pick the current Gemini Flash model ID, and set `GEMINI_MODEL` to it.
+- **Don't:** use an AI Studio API key (`GOOGLE_API_KEY`). We use Vertex with ADC.
+- **Check:**
+  ```bash
+  curl -s -X POST -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" -H "Content-Type: application/json" \
+    "https://aiplatform.googleapis.com/v1/projects/$P/locations/global/publishers/google/models/$GEMINI_MODEL:generateContent" \
+    -d '{"contents":[{"role":"user","parts":[{"text":"reply with: ok"}]}]}' | grep -o '"text": *"[^"]*"'
+  ```
 
-> **Testing-mode refresh tokens expire after 7 days.** Re-run `judgebench auth-google` the day
-> before the event (21 Nov) and whenever you see `invalid_grant`.
-
-### 3. Telegram bot and private channel
-
-1. In Telegram, open **@BotFather** → `/newbot` → pick a name and username. Copy the token into `.env` as `TELEGRAM_BOT_TOKEN=...`.
-2. In BotFather: `/setjoingroups` → your bot → **Disable**. Strangers can't add it to groups.
-3. Create a **New Channel** → **Private**. Then **Manage channel → Administrators → Add admin →** your bot, with **Post messages** only.
-4. Post any message in the channel, then read the channel ID (starts with `-100`):
-   ```bash
-   set -a; source .env; set +a
-   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" \
-     | python3 -c "import sys,json; [print(u['channel_post']['chat']['id'], u['channel_post']['chat']['title']) for u in json.load(sys.stdin)['result'] if 'channel_post' in u]"
-   ```
-   Put the ID in your event file as `telegram_chat_id`.
-5. Judges' Telegram user IDs (optional for M1): each judge sends `/start` to the bot. Run the `getUpdates` call above and read `message.from.id`. Put it in the event file as `telegram_user_id`.
-
-### 4. GitHub token (public repositories, read-only)
-
-GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
-
-- Name `judgebench-worker`, expiration 30 days.
-- Resource owner: you. Repository access: **Public repositories**. Permissions: none.
-
-Put it in `.env` as `GITHUB_TOKEN=...`. Without it, GitHub allows 60 requests/hour, which is enough to try things but not for the event.
-
-### 5. Event file
-
-```bash
-cp events/example.yaml events/<slug>.yaml   # set name, deadline, telegram_chat_id, judges
-```
+### 8. Event file (2 min) [M1]
+`cp events/example.yaml events/<slug>.yaml`, then set `name`, `deadline` (with timezone), `telegram_chat_id` and `judges`.
+- **Check:** `uv run python -c "from pathlib import Path; from judgebench.event_config import load_event_config as l; print(l(Path('events/<slug>.yaml')).slug)"`
 
 ---
 
-## Verify M1
+## Verify M1 (after items 1-6 and 8)
 
 ```bash
 docker compose up -d --wait db
-uv sync --all-extras
 uv run alembic upgrade head
-
-# 1. Security suite and everything else green (needs the DB container)
-uv run pytest -q tests/security          # expect: all pass + 2 xfailed (M2, M3)
-uv run pytest -q                         # expect: all pass + 2 xfailed
-uv run ruff check src tests && uv run mypy
-
-# 2. Create the event. Prints the Form link, Form editor and judging workbook URLs.
+uv run pytest -q                                       # all pass (+ strict xfails for later milestones)
 uv run --env-file .env judgebench setup events/<slug>.yaml
-#    One manual click: Form editor -> Responses -> Link to Sheets (fallback, §6.2)
-
-# 3. Start the loop. Telegram should show "Event ready".
-uv run --env-file .env judgebench run --interval 15
-
-# 4. Open the participant Form link and submit a public repo,
-#    e.g. https://github.com/<you>/<any-public-python-repo>
-#    Within ~30 s Telegram shows:
-#      [<Team>] Submission received (v1)
-#      [<Team>] Profiled (commit abc1234): Python, ... -> adapters: ...
-#    and the judging workbook's Leaderboard tab gets a row: team, 1, commit, PROFILED, categories.
-
-# 5. State in the DB
+#   one click: Form editor -> Responses -> Link to Sheets
+uv run --env-file .env judgebench run --interval 15    # Telegram: "Event ready"
+# Submit the Form with a public GitHub repo. Within ~30 s:
+#   Telegram: "[Team] Submission received (v1)" then "[Team] Profiled (commit …): … -> adapters: …"
+#   Leaderboard tab: team | 1 | commit | PROFILED | categories
 uv run --env-file .env judgebench status <slug>
 ```
 
-Idempotency check: stop and restart `judgebench run`. No duplicate submissions, Telegram
-messages or Leaderboard writes.
-
----
-
-## Part B: after M1 passes locally (Cloud Run deploy)
-
-One service account per component. **Never use the default compute service account.**
-
-```bash
-P=<PROJECT_ID>
-for sa in jb-api jb-worker jb-telegram jb-probe jb-build jb-scheduler; do
-  gcloud iam service-accounts create $sa --project=$P
-done
-# api, worker, telegram: Cloud SQL client. jb-probe gets NO roles at all.
-for sa in jb-api jb-worker jb-telegram; do
-  gcloud projects add-iam-policy-binding $P --role=roles/cloudsql.client \
-    --member=serviceAccount:$sa@$P.iam.gserviceaccount.com
-done
-# build SA: deploy, push images, act as the runtime SAs, write logs
-for role in roles/run.admin roles/artifactregistry.writer roles/logging.logWriter; do
-  gcloud projects add-iam-policy-binding $P --role=$role \
-    --member=serviceAccount:jb-build@$P.iam.gserviceaccount.com
-done
-for sa in jb-api jb-worker jb-telegram jb-probe; do
-  gcloud iam service-accounts add-iam-policy-binding $sa@$P.iam.gserviceaccount.com \
-    --role=roles/iam.serviceAccountUser --member=serviceAccount:jb-build@$P.iam.gserviceaccount.com
-done
-```
-
-Secret access is granted per secret, not per project: `google-oauth-token` → jb-api only;
-`github-token` → jb-worker only; `telegram-bot-token` → jb-telegram only; `database-url` →
-api, worker and telegram. Invoker rights: jb-scheduler → api, worker and telegram;
-jb-worker → probe. The full deploy runbook (Artifact Registry, Cloud SQL, secrets, Scheduler
-jobs) comes with the deploy step.
+Cloud Run deploy steps (service accounts, secrets) live in `deploy/README.md`.
