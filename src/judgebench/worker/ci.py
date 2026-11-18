@@ -21,7 +21,8 @@ from judgebench.worker.github import API, GitHub, RepoError, RepoRef
 
 MAX_WORKFLOW_BYTES = 64 * 1024
 MAX_LOG_BYTES = 2 * 1024 * 1024
-MAX_RUNS = 10
+MAX_RUNS = 30
+CODE_EVENTS = {"push", "pull_request", "merge_group"}
 LOG_HOST_SUFFIXES = (".blob.core.windows.net", ".actions.githubusercontent.com", "github.com")
 TEST_COMMAND = re.compile(
     r"\b(pytest|py\.test|unittest|nose2|tox|nox|jest|vitest|mocha|ava|go test|cargo test|mvn( -\S+)* (test|verify)"
@@ -160,12 +161,17 @@ def ci_findings(
         details["summary"] = "CI runs not read (no GitHub access)"
         return findings, CheckStatus.NOT_ATTEMPTED, details
 
-    runs = reader.runs(ref, sha)
+    # Only runs triggered by code (not schedules, issue bots, manual dispatch), newest per workflow.
+    latest: dict[str, dict[str, Any]] = {}
+    for run in reader.runs(ref, sha):
+        if run.get("event", "push") in CODE_EVENTS:
+            latest.setdefault(str(run.get("path") or run.get("name")), run)
+    runs = list(latest.values())
     if not runs:
         findings.append(
             Finding(
                 key="ci.runs",
-                observation=f"No workflow runs found for commit {sha[:7]}",
+                observation=f"No push or pull-request workflow runs for commit {sha[:7]}",
                 source_type=SourceType.CI,
                 source_locator=f"ci:commit/{sha[:7]}",
                 status=EvidenceStatus.MISSING,
@@ -174,7 +180,7 @@ def ci_findings(
                 criterion="engineering",
             )
         )
-        details["summary"] = f"no workflow runs on {sha[:7]}"
+        details["summary"] = f"no push/PR workflow runs on {sha[:7]}"
         return findings, CheckStatus.NOT_VERIFIABLE, details
 
     status, lines = CheckStatus.NOT_VERIFIABLE, []

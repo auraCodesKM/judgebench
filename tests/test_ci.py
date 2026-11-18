@@ -77,7 +77,7 @@ def test_no_ci_and_no_runs_are_not_verifiable(tmp_path: Path) -> None:
     _, status, details = ci_findings(FakeReader([]), REF, SHA, write(tmp_path / "a", repos.ML_CLASSIFIER))
     assert status == CheckStatus.NOT_VERIFIABLE and details["summary"] == "no CI configured"
     _, status, details = ci_findings(FakeReader([]), REF, SHA, write(tmp_path / "b", repos.ALPHA_RAG))
-    assert status == CheckStatus.NOT_VERIFIABLE and details["summary"] == "no workflow runs on 3f2c1ab"
+    assert status == CheckStatus.NOT_VERIFIABLE and details["summary"] == "no push/PR workflow runs on 3f2c1ab"
 
 
 def test_hostile_workflow_yaml_is_contained(tmp_path: Path) -> None:
@@ -103,3 +103,22 @@ def test_log_summary_parsing() -> None:
     log = "noise\n============ 14 passed, 1 warning in 2.31s ============\n"
     gh = GitHub("t", httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=log))))
     assert CiReader(gh).log_test_count(REF, 1) == ("pytest", 14)
+
+
+def test_only_latest_code_triggered_run_per_workflow_counts(tmp_path: Path) -> None:
+    runs = [  # newest first, as the API returns them
+        {
+            "id": 5,
+            "name": "Lock issues",
+            "path": ".github/workflows/lock.yml",
+            "conclusion": "failure",
+            "event": "schedule",
+        },
+        {"id": 4, "name": "test", "path": ".github/workflows/test.yml", "conclusion": "success", "event": "push"},
+        {"id": 3, "name": "test", "path": ".github/workflows/test.yml", "conclusion": "failure", "event": "push"},
+    ]
+    reader = FakeReader(runs, [{"id": 40, "name": "test", "conclusion": "success"}], ("pytest", 14))
+    findings, status, details = ci_findings(reader, REF, SHA, write(tmp_path, repos.ALPHA_RAG))
+    assert status == CheckStatus.VERIFIED
+    assert [f.key for f in findings] == ["ci.tests_passed"]
+    assert details["summary"] == '"test" passed on 3f2c1ab (pytest, 14 tests)'
