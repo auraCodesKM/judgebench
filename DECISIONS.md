@@ -54,3 +54,30 @@ One line per significant choice, and why. Newest last.
 - **Telegram sends plain text (no `parse_mode`), and the bot token is scrubbed from every stored error.** Team names can't inject markup, and the token sits in the URL path.
 - **Each component owns one secret: API = Google token, worker = GitHub token, telegram = bot token, probe = none.** Least privilege (§14.1 rule 4).
 - **M1 service auth = Cloud Run IAM (`--no-allow-unauthenticated`) + Scheduler OIDC; no app-level tokens.** One mechanism, enforced before the code runs.
+
+## M2: evidence and agents
+- **Adapters are deterministic inspectors (rag, agentic, ml, generic). Behaviour checks (CI, live, demo) are shared, not per adapter.** One CI reader beats four copies of `check_behaviour` (§7.3 protocol simplified). The vision/infra profiles fall back to generic with an explicit "not a penalty" finding.
+- **Static wiring uses a name-based call graph from `ast`; "reachable" means reachable from a request handler, `__main__`, an app file or a callback argument.** It answers "is the retriever on the request path?" without running anything. Ceiling: over-approximates (same-name functions). Upgrade to per-module resolution if the benchmark shows false positives.
+- **`langchain` alone no longer triggers the RAG adapter (weight 0.3 → 0.2).** Agent-only projects were getting noisy RAG "MISSING" findings. RAG now needs a vector store or retrieval library too. Rules version bumped.
+- **"CI with tests" means a workflow whose `run:` steps contain a recognised test runner.** A green run without one is `ci.green_without_tests`, never a behaviour source (Team Zeta).
+- **CI logs: only a test-count summary is regex-extracted from the last 400 lines (≤2 MiB); raw logs are never stored or prompted.** Participants control log content.
+- **Live check: health GET + the team's sample request, parsed deterministically (curl / JSON / `METHOD /path`), same host only, never via an LLM.** Free-text samples are reported as "not machine-readable" instead of being guessed at.
+- **Health 2xx alone is not a behaviour source; a sample query that answers (and matches its `expect`) is.** "The app is up" isn't evidence that it works.
+- **Probe runs in-process locally (`PROBE_URL=inprocess`), as its own role-less Cloud Run service in deploy.** Same guarded client either way. The isolation property is a deploy property.
+- **Repo is re-fetched at the pinned commit per stage that needs code; no shared disk or GCS yet.** Stages are independent and crash-safe. Ceiling: one extra GitHub download per submission. Add a GCS cache if rate limits bite.
+- **Evidence is append-only, grouped by `stage_attempt`; the submission points at its current attempt.** A re-run never overwrites old findings (§9.4).
+- **ADK for every LLM call, with one fake `BaseLlm` in tests.** One metering/budget hook, and agent trajectories are testable without credentials.
+- **Orchestrator = custom ADK `BaseAgent` whose routing comes from `session.state["adapters"]` (set by code).** Hierarchical delegation is real ADK delegation, but a prompt can't add or remove a specialist.
+- **System instructions are static; all participant-derived text goes in the user turn inside `<untrusted_data>` fences, with fence tags in the text defanged.** Proven by a susceptible-fake test plus a mutation check (breaking the defang makes the test fail).
+- **Investigator tools are closures bound to one snapshot; they take no IDs.** Scope can't be widened by a model.
+- **Claim status rules are code (`clamp_verdict`): VERIFIED needs behavioural + code evidence; demo never verifies; CONTRADICTED needs a citation.** The model proposes, code decides (§7.5).
+- **Investigator `code_refs` are validated (file exists, line range valid) and persisted as `investigation.code_ref` evidence with file hash.** Investigation findings become inspectable provenance.
+- **The investigator uses JSON text output, not `output_schema`.** Gemini's tools + output-schema pairing depends on model capability. Parse failures degrade to UNVERIFIED, never crash.
+- **Critic rules: a score >½ max must cite supporting evidence; model_quality >½ must cite evaluation evidence; violations are cut to floor(45% of max) and flagged.** This matches the spec's 16/20 → 9/20 example. The LLM critic may only lower or flag; code enforces it.
+- **The pre-critic score is stored next to the final score.** The evaluator's recommendation stays inspectable (§6.3).
+- **Budgets: per-submission token budget (default 400k) checked before every model call, plus ADK `max_llm_calls=40` and 8 investigator tool calls; budget hit → REQUIRES_HUMAN, not FAILED.** Degrade to humans instead of silently truncating.
+- **Cost uses a static price table (Gemini 2.5 Flash/Pro list prices, USD per 1M tokens), and unknown models cost 0.** Estimates only; verify against current Vertex pricing before quoting numbers in RESULTS.md.
+- **Two model tiers (`GEMINI_MODEL` cheap: analyst, demo, specialists; `GEMINI_MODEL_STRONG`: investigator, evaluator, critic), defaulting to the same model.** This is model routing (§12.4) without forcing a second model before it's measured.
+- **Demo: Gemini reads the YouTube URL directly (first 5 min, 0.5 fps), and only bounded per-claim questions are asked.** A 400/403/404 from the model is "video unavailable" (MISSING); any other error is retried.
+- **Pub/Sub messages are wake-ups (`{submission_id}`), published after the ingestion commit; publish failures are logged, not raised. The push handler just advances claimable work.** The DB is the queue, so loss = delay, duplicate = no-op. Dead-letter topic after 5 attempts; the Scheduler sweep stays as the backstop.
+- **`transition()` resets `attempts` on every successful stage and can keep the lease across PROFILED → COLLECTING_EVIDENCE.** The retry budget is per stage, and a second worker can't grab work mid-handoff.

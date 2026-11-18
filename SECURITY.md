@@ -21,7 +21,7 @@ fails loudly the moment it starts passing, so the marker must be removed.
 | SSRF: private ranges (`10.x`, `127.0.0.1`, `[::1]`, CGNAT, multicast, mapped IPv6, integer IPs) | **Proven** | `::test_private_ranges_blocked`, `::test_hostname_resolving_to_private_blocked` | — |
 | SSRF: redirect to private | **Proven** | `::test_redirect_to_private_address_blocked`, `::test_redirect_targets_rechecked`, `::test_redirect_hop_limit` | — |
 | SSRF: DNS rebinding | **Proven** | `::test_dns_rebinding_uses_pinned_address` (resolved once, pinned IP used), `::test_dns_answer_with_any_private_address_blocked` | — |
-| Prompt injection | **Partially proven** | `tests/security/test_repository_boundary.py::test_prompt_injection_does_not_change_profile`: categories, technologies and adapter selection unchanged | **M2**: scores, tools and scope unchanged through the agents (`::test_prompt_injection_full_pipeline_unchanged`, xfail strict) |
+| Prompt injection | **Proven** | `tests/security/test_repository_boundary.py::test_prompt_injection_does_not_change_profile` (profile/adapters unchanged); `tests/security/test_prompt_injection.py::test_injection_changes_nothing`: with a model that *obeys* any unfenced instruction, Epsilon's scores equal the clean twin's, the investigator's tools are identical, the injection never appears outside a fence, and another team's name/secret never appears in any prompt or output. `::test_compromised_model_is_still_capped_by_code`: even full obedience is cut by the critic rules. Mutation-checked: removing fence defanging makes the test fail | — |
 | Cross-event access | **Partially proven** | `tests/security/test_cross_event.py`: scope derived from membership only; event-A lookups by a judge of B return nothing; explicit access denied + `audit_events` row; removed judge loses access immediately; composite FK rejects cross-event rows | **M3**: Telegram Copilot webhook path (`::test_copilot_webhook_denies_cross_event_question`, xfail strict) |
 
 Supporting tests: SSRF scheme/port/credential rules, request caps, no cookies/auth headers,
@@ -37,8 +37,10 @@ response-size cap (`test_ssrf.py`); Sheets formula injection stays text
 | Never install, build, import or run participant code; text + `ast.parse` only | `adapters/profiler.py` (notebooks: JSON → `ast.parse`, magics dropped) |
 | Extraction limits; reject absolute, `..`, links, devices | `worker/extract.py` |
 | One guarded client: HTTPS:443 only, DNS pinned, all answers checked, redirects re-validated, caps, no cookies/credentials | `probe/guard.py`, served by `probe/app.py` |
-| Participant text is data | The profiler ignores prose; Telegram is plain text; Sheets is RAW. M2 adds delimited data blocks in prompts |
-| One SA per component, never the default compute SA; probe SA has no roles | `cloudbuild.yaml` deploy step; SA setup in `M0_SETUP.md` |
+| Participant text is data | Static system instructions; participant-derived text only in the user turn inside defanged `<untrusted_data>` fences (`agents/runtime.py`); claim status and score clamps in code (`agents/views.py`, `agents/scoring.py`); the profiler ignores prose; Telegram is plain text; Sheets is RAW |
+| One SA per component, never the default compute SA; probe SA has no roles | `cloudbuild.yaml` deploy step; SA setup in `deploy/README.md` |
+| Agent tools can't widen scope | Investigator tools are closures over one snapshot, with no ID parameters (`agents/team.py`) |
+| Untrusted CI output | Workflow YAML is size-capped and safe-loaded; job logs are reduced to a regex test count, never stored or prompted (`worker/ci.py`) |
 | Google refresh token only in the API component | Mounted only on `jb-api` |
 
 ## Reporting

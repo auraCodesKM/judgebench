@@ -13,6 +13,8 @@ substitutions:
   _REPO: judgebench
   _DEPLOY: "false"
   _SQL_INSTANCE: judgebench-pg  # Cloud SQL instance name
+  _GEMINI_MODEL: gemini-2.5-flash
+  _PUBSUB_TOPIC: evaluate
 
 steps:
   - id: test-db
@@ -76,14 +78,16 @@ steps:
         common="--region=${_REGION} --no-allow-unauthenticated --quiet"
         gcloud run deploy jb-probe --image=$$IMG/probe:$SHORT_SHA $$common \
           --service-account=jb-probe@$PROJECT_ID.iam.gserviceaccount.com --memory=512Mi --concurrency=10
+        PROBE_URL=$$(gcloud run services describe jb-probe --region=${_REGION} --format='value(status.url)')
         gcloud run deploy jb-worker --image=$$IMG/worker:$SHORT_SHA $$common \
           --service-account=jb-worker@$PROJECT_ID.iam.gserviceaccount.com --memory=2Gi --timeout=900 \
           --add-cloudsql-instances=$$SQL \
+          --set-env-vars=PROBE_URL=$$PROBE_URL,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=${_GEMINI_MODEL} \
           --set-secrets=DATABASE_URL=database-url:latest,GITHUB_TOKEN=github-token:latest
         gcloud run deploy jb-api --image=$$IMG/api:$SHORT_SHA $$common \
           --service-account=jb-api@$PROJECT_ID.iam.gserviceaccount.com \
           --add-cloudsql-instances=$$SQL \
-          --set-env-vars=GOOGLE_TOKEN_FILE=/secrets/google/token.json \
+          --set-env-vars=GOOGLE_TOKEN_FILE=/secrets/google/token.json,PUBSUB_TOPIC=projects/$PROJECT_ID/topics/${_PUBSUB_TOPIC} \
           --set-secrets=DATABASE_URL=database-url:latest,/secrets/google/token.json=google-oauth-token:latest
         gcloud run deploy jb-telegram --image=$$IMG/telegram:$SHORT_SHA $$common \
           --service-account=jb-telegram@$PROJECT_ID.iam.gserviceaccount.com \

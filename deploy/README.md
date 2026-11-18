@@ -28,3 +28,40 @@ Secret access is granted per secret, not per project: `google-oauth-token` → j
 api, worker and telegram. Invoker rights: jb-scheduler → api, worker and telegram;
 jb-worker → probe. The full deploy runbook (Artifact Registry, Cloud SQL, secrets, Scheduler
 jobs) comes with the deploy step.
+
+## M2 additions: Vertex AI and Pub/Sub
+
+```bash
+# Worker calls Gemini on Vertex AI. It is the only SA with this role.
+gcloud projects add-iam-policy-binding $P --role=roles/aiplatform.user \
+  --member=serviceAccount:jb-worker@$P.iam.gserviceaccount.com
+
+# Topic + dead-letter topic. Only jb-api may publish.
+gcloud pubsub topics create evaluate
+gcloud pubsub topics create evaluate-dlq
+gcloud pubsub topics add-iam-policy-binding evaluate --role=roles/pubsub.publisher \
+  --member=serviceAccount:jb-api@$P.iam.gserviceaccount.com
+
+# Push subscription to the worker, authenticated with its own SA (OIDC), 5 attempts then DLQ.
+gcloud iam service-accounts create jb-pubsub-push --project=$P
+gcloud run services add-iam-policy-binding jb-worker --region=asia-south1 --role=roles/run.invoker \
+  --member=serviceAccount:jb-pubsub-push@$P.iam.gserviceaccount.com
+WORKER_URL=$(gcloud run services describe jb-worker --region=asia-south1 --format='value(status.url)')
+gcloud pubsub subscriptions create evaluate-push --topic=evaluate \
+  --push-endpoint=$WORKER_URL/internal/pubsub --push-auth-service-account=jb-pubsub-push@$P.iam.gserviceaccount.com \
+  --ack-deadline=600 --dead-letter-topic=evaluate-dlq --max-delivery-attempts=5 \
+  --min-retry-delay=30s --max-retry-delay=600s
+# Pub/Sub's service agent must be able to publish to the DLQ and ack the source subscription:
+PN=$(gcloud projects describe $P --format='value(projectNumber)')
+gcloud pubsub topics add-iam-policy-binding evaluate-dlq --role=roles/pubsub.publisher \
+  --member=serviceAccount:service-$PN@gcp-sa-pubsub.iam.gserviceaccount.com
+gcloud pubsub subscriptions add-iam-policy-binding evaluate-push --role=roles/pubsub.subscriber \
+  --member=serviceAccount:service-$PN@gcp-sa-pubsub.iam.gserviceaccount.com
+
+# Worker may invoke the probe; nothing else may.
+gcloud run services add-iam-policy-binding jb-probe --region=asia-south1 --role=roles/run.invoker \
+  --member=serviceAccount:jb-worker@$P.iam.gserviceaccount.com
+```
+
+Scheduler still calls `jb-worker /internal/work` every few minutes as the safety sweep, for lost
+messages and retries.
