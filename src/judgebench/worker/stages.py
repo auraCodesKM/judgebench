@@ -155,6 +155,9 @@ def _persist_usage(
                 output_tokens=call.output_tokens,
                 cost_usd=call.cost_usd,
                 latency_ms=call.latency_ms,
+                stage=stage,
+                agent=call.agent,
+                tokens_per_sec=call.tokens_per_sec,
             )
         )
     agents = {c.agent for c in meter.calls} | set(meter.tools)

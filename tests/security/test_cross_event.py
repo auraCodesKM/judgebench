@@ -1,6 +1,8 @@
 """§14.2 row: cross-event access. M1 proves it at the event-scoped query layer and the
 Telegram authorisation stub; the full Telegram Copilot path is M3."""
 
+from typing import Any
+
 import pytest
 from sqlalchemy.orm import Session
 
@@ -88,8 +90,36 @@ def test_composite_fk_blocks_cross_event_submission(session: Session, two_events
         session.flush()
 
 
-@pytest.mark.xfail(reason="M3: Telegram Judge Copilot webhook not built yet", strict=True)
-def test_copilot_webhook_denies_cross_event_question() -> None:
-    from judgebench.telegram.app import app  # type: ignore[attr-defined]  # noqa: F401
+def test_copilot_webhook_denies_cross_event_question(
+    session_factory: Any, session: Session, two_events: tuple[m.Event, m.Event], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
 
-    raise AssertionError("implement in M3: POST webhook '/team Alpha' as judge of B -> denied + logged")
+    from fastapi.testclient import TestClient
+
+    import judgebench.telegram.app as tg
+    from judgebench.retrieval import HashingEmbedder
+    from judgebench.telegram.copilot import Copilot
+    from tests.fake_llm import fake
+
+    a, _ = two_events
+    monkeypatch.setattr(tg, "sessions", lambda: session_factory)
+    monkeypatch.setattr(tg, "settings", lambda: SimpleNamespace(telegram_webhook_secret="s3cret"))
+    monkeypatch.setattr(tg, "copilot", lambda: Copilot(HashingEmbedder(), fake()))
+    client = TestClient(tg.app)
+
+    def ask(text: str, secret: str = "s3cret", chat: str = "private") -> Any:
+        update = {"message": {"chat": {"id": 5, "type": chat}, "from": {"id": JUDGE_B}, "text": text}}
+        return client.post(
+            "/integrations/telegram/webhook", json=update, headers={"X-Telegram-Bot-Api-Secret-Token": secret}
+        )
+
+    assert ask("/team Alpha", secret="wrong").status_code == 403
+    assert ask("/team Alpha", chat="channel").json() == {}  # never answers outside private chats
+    assert ask("/team Alpha").json()["text"] == "No team named 'Alpha' in your events."  # same as nonexistent
+    assert "Alpha" not in ask("/teams").json()["text"]
+    assert ask("/team Bravo").json()["text"].startswith("Bravo v1")
+    session.expire_all()
+    [d] = denials(session)
+    assert d.event_id == a.id and d.actor == f"telegram:{JUDGE_B}"
+    assert session.query(m.JudgeQuery).count() == 3  # every answered command logged

@@ -76,6 +76,10 @@ class Call:
     latency_ms: int
 
     @property
+    def tokens_per_sec(self) -> float | None:
+        return round(self.output_tokens / (self.latency_ms / 1000), 1) if self.latency_ms > 0 else None
+
+    @property
     def cost_usd(self) -> float:
         p_in, p_out = PRICES.get(self.model, (0.0, 0.0))
         return (self.prompt_tokens * p_in + self.output_tokens * p_out) / 1_000_000

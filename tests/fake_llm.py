@@ -11,7 +11,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
-Handler = Callable[["Seen"], dict[str, Any] | types.FunctionCall]
+Handler = Callable[["Seen"], dict[str, Any] | str | types.FunctionCall]
 _NAME = re.compile(r'internal name is "([^"]+)"')
 
 
@@ -48,9 +48,10 @@ class FakeLlm(BaseLlm):
         seen = Seen(llm_request, turn)
         self.seen.append(seen)
         out = self.handlers.get(seen.agent, lambda s: {})(seen)
-        part = (
-            types.Part(function_call=out) if isinstance(out, types.FunctionCall) else types.Part(text=json.dumps(out))
-        )
+        if isinstance(out, types.FunctionCall):
+            part = types.Part(function_call=out)
+        else:
+            part = types.Part(text=out if isinstance(out, str) else json.dumps(out))
         yield LlmResponse(
             content=types.Content(role="model", parts=[part]),
             usage_metadata=types.GenerateContentResponseUsageMetadata(
@@ -152,6 +153,11 @@ def evaluator(s: Seen) -> dict[str, Any]:
     }
 
 
+def copilot(s: Seen) -> str:
+    srcs = re.findall(r"\[S\d+\] (\S+)", s.text)
+    return f"The retriever is called in the request handler [S1] ({srcs[0] if srcs else '?'})."
+
+
 def no_revisions(s: Seen) -> dict[str, Any]:
     return {"revisions": [], "notes": []}
 
@@ -162,6 +168,7 @@ DEFAULT: dict[str, Handler] = {
     "claim_investigator": investigator,
     "rubric_evaluator": evaluator,
     "critic": no_revisions,
+    "copilot": copilot,
     **{f"{a}_specialist": specialist for a in ("rag", "agentic", "ml", "generic")},
 }
 

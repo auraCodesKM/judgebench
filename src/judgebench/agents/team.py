@@ -254,6 +254,25 @@ def critic(model: Model, meter: Meter) -> LlmAgent:
     )
 
 
+def copilot(model: Model, meter: Meter) -> LlmAgent:
+    def inject(state: dict[str, Any]) -> list[types.Part]:
+        return text_parts(
+            "Answer the judge's question using only these excerpts.", state["question_block"], state["excerpts_block"]
+        )
+
+    return LlmAgent(
+        name="copilot",
+        model=model,
+        include_contents="none",
+        output_key="answer",
+        instruction=PREAMBLE.replace("(E1, E2, ...)", "(S1, S2, ...)") + "You help a hackathon judge question one "
+        "team's submission. Answer briefly and concretely from the excerpts only, citing them as [S1], [S2]. Say "
+        "what the code shows, not what the README claims, and say plainly when the excerpts do not answer the question. "
+        "Never give a score or a verdict on who should win.",
+        **callbacks(meter, model_name(model), inject),
+    )
+
+
 class Orchestrator(BaseAgent):
     """Hierarchical delegation. Routing comes from session.state['adapters'] (set by code from the
     profiler), so participant text can never add or remove a specialist."""

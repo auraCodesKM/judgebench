@@ -27,6 +27,7 @@ class Settings:
     google_cloud_project: str | None
     submission_token_budget: int
     embedding_model: str
+    telegram_webhook_secret: str | None
     google_cloud_location: str
 
 
@@ -49,5 +50,6 @@ def settings() -> Settings:
         google_cloud_project=env("GOOGLE_CLOUD_PROJECT") or None,
         submission_token_budget=int(env("SUBMISSION_TOKEN_BUDGET", "400000")),
         embedding_model=env("EMBEDDING_MODEL", "gemini-embedding-001"),
+        telegram_webhook_secret=env("TELEGRAM_WEBHOOK_SECRET") or None,
         google_cloud_location=env("GOOGLE_CLOUD_LOCATION", "global"),
     )
