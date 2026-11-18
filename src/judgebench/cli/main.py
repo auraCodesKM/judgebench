@@ -130,11 +130,24 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("no submissions")
 
 
+def cmd_doctor(_: argparse.Namespace) -> None:
+    from judgebench.cli import doctor
+
+    results = doctor.run()
+    print(doctor.render(results))
+    if any(r.status == "FAIL" for r in results):
+        sys.exit(1)
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx logs full request URLs at INFO; Telegram URLs contain the bot token.
+    for noisy in ("httpx", "httpcore", "alembic", "google_adk"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(prog=settings().app_name)
     sub = parser.add_subparsers(required=True)
     sub.add_parser("auth-google").set_defaults(fn=cmd_auth_google)
+    sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     p = sub.add_parser("setup")
     p.add_argument("config")
     p.set_defaults(fn=cmd_setup)
