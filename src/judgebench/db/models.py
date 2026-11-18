@@ -233,6 +233,8 @@ class Evidence(EventOwned, Base):
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     submission_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    key: Mapped[str] = mapped_column(String(80))  # stable finding id, e.g. "rag.retrieval_on_request_path"
+    stage_attempt: Mapped[str] = mapped_column(String(40))  # which evidence run produced it (append-only)
     criterion: Mapped[str | None] = mapped_column(String(60))
     claim: Mapped[str | None] = mapped_column(Text)
     observation: Mapped[str] = mapped_column(Text)
@@ -257,7 +259,12 @@ class Claim(EventOwned, Base):
     text: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(30))
     source_locator: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(
+        String(30), default="feature"
+    )  # accuracy|performance|scale|testing|architecture|feature
     verification_status: Mapped[str] = mapped_column(String(30), default="NOT_ATTEMPTED")
+    evidence_ids: Mapped[list[Any]] = mapped_column(default=list)
+    rationale: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created()
 
 
@@ -274,6 +281,8 @@ class Evaluation(EventOwned, Base):
     status: Mapped[str] = mapped_column(String(20))
     total_score: Mapped[float | None] = mapped_column(Float)
     confidence: Mapped[str | None] = mapped_column(String(10))
+    suggested_questions: Mapped[list[Any]] = mapped_column(default=list)
+    flags: Mapped[list[Any]] = mapped_column(default=list)
     created_at: Mapped[datetime] = _created()
 
 
@@ -291,15 +300,23 @@ class CriterionScore(EventOwned, Base):
     evidence_ids: Mapped[list[Any]] = mapped_column(default=list)
     missing_evidence: Mapped[list[Any]] = mapped_column(default=list)
     suggested_question: Mapped[str | None] = mapped_column(Text)
+    pre_critic_score: Mapped[float | None] = mapped_column(Float)  # the evaluator's original recommendation
+    critic_note: Mapped[str | None] = mapped_column(Text)
+    flagged: Mapped[bool] = mapped_column(default=False)
 
 
 class AgentRun(EventOwned, Base):
     __tablename__ = "agent_runs"
-    _extra_args = (_child_of("evaluations", "evaluation_id"),)
+    _extra_args = (_child_of("submissions", "submission_id"), _child_of("evaluations", "evaluation_id"))
     id: Mapped[uuid.UUID] = _pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column()
-    evaluation_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    submission_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    evaluation_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    stage: Mapped[str] = mapped_column(String(30))
     agent_name: Mapped[str] = mapped_column(String(60))
+    llm_calls: Mapped[int] = mapped_column(default=0)
+    tool_calls: Mapped[int] = mapped_column(default=0)
+    trace: Mapped[list[Any]] = mapped_column(default=list)  # tool name + args + short observation
     state: Mapped[str] = mapped_column(String(20))
     model: Mapped[str | None] = mapped_column(String(100))
     prompt_tokens: Mapped[int] = mapped_column(default=0)

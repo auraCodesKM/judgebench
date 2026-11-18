@@ -17,7 +17,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 PROFILER_VERSION = "0.1.0"
-RULES_VERSION = "2026-11-18"
+RULES_VERSION = "2026-11-19"
 
 
 class Category(StrEnum):
@@ -57,7 +57,7 @@ RULES: dict[str, tuple[str, dict[Category, float]]] = {
     "transformers": ("hf-transformers", {ML: 0.2, RAG: 0.1}),
     "datasets": ("hf-datasets", {ML: 0.2}),
     "peft": ("peft", {ML: 0.3}),
-    "langchain": ("langchain", {RAG: 0.3, AG: 0.2}),
+    "langchain": ("langchain", {RAG: 0.2, AG: 0.2}),
     "llama_index": ("llamaindex", {RAG: 0.5}),
     "haystack": ("haystack", {RAG: 0.5}),
     "dspy": ("dspy", {RAG: 0.3, AG: 0.2}),

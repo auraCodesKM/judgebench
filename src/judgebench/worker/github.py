@@ -14,6 +14,8 @@ from pathlib import Path
 
 import httpx
 
+from judgebench.errors import StageError
+
 API = "https://api.github.com"
 ALLOWED_HOSTS = {"api.github.com", "codeload.github.com"}
 MAX_TARBALL_BYTES = 200 * 1024 * 1024
@@ -23,10 +25,8 @@ _REPO = re.compile(
 )
 
 
-class RepoError(Exception):
-    def __init__(self, category: str, retryable: bool, detail: str = "") -> None:
-        super().__init__(f"{category}: {detail}")
-        self.category, self.retryable = category, retryable
+class RepoError(StageError):
+    pass
 
 
 @dataclass(frozen=True)

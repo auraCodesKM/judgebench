@@ -20,6 +20,12 @@ class Settings:
     google_token_file: str
     google_client_secrets_file: str
     probe_user_agent: str
+    probe_url: str
+    gemini_model: str
+    gemini_model_strong: str
+    pubsub_topic: str | None
+    google_cloud_project: str | None
+    submission_token_budget: int
 
 
 @cache
@@ -34,4 +40,10 @@ def settings() -> Settings:
         google_token_file=env("GOOGLE_TOKEN_FILE", ".secrets/google.token.json"),
         google_client_secrets_file=env("GOOGLE_CLIENT_SECRETS_FILE", ".secrets/oauth_client.json"),
         probe_user_agent=env("PROBE_USER_AGENT", f"{name}-probe/0.1 (hackathon live check)"),
+        probe_url=env("PROBE_URL", "http://localhost:8081"),
+        gemini_model=env("GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_model_strong=env("GEMINI_MODEL_STRONG", env("GEMINI_MODEL", "gemini-2.5-flash")),
+        pubsub_topic=env("PUBSUB_TOPIC") or None,
+        google_cloud_project=env("GOOGLE_CLOUD_PROJECT") or None,
+        submission_token_budget=int(env("SUBMISSION_TOKEN_BUDGET", "400000")),
     )
