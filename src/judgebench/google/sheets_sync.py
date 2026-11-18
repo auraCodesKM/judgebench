@@ -212,9 +212,24 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
             a.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             teams.get(a.submission_id, "") if a.submission_id else "",
             a.action,
-            a.target or "",
+            audit_text(a),
         ]
     return tabs
+
+
+def audit_text(a: AuditEvent) -> str:
+    """Readable Detail column. Raw IDs (e.g. the Form response ID) stay in the DB, not the Sheet."""
+    d, state = a.detail or {}, a.action.removeprefix("state:")
+    if state == "RECEIVED":
+        return f"Submission received (v{d.get('version', '?')})" + (" after the deadline" if d.get("late") else "")
+    text = (a.target or state).replace("->", " -> ")
+    if state == "FAILED":
+        text += f": {d.get('category', 'unknown error')}"
+    elif state == "READY_FOR_REVIEW" and "total" in d:
+        text += f": total {d['total']:g}, confidence {d.get('confidence', '?')}"
+    elif state == "REQUIRES_HUMAN":
+        text += ": sent to judges for manual review"
+    return text
 
 
 # --- sync -------------------------------------------------------------------------------

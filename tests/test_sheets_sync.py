@@ -120,3 +120,23 @@ def test_judge_edits_survive_reevaluation(session_factory: sessionmaker[Session]
     writes = len(sheet.writes)
     sync_workbook(session, event, sheet.read, sheet.write)
     assert len(sheet.writes) == writes  # nothing changed: no Sheets writes
+
+
+def test_audit_log_detail_is_readable() -> None:
+    from judgebench.db.models import AuditEvent
+    from judgebench.google.sheets_sync import audit_text
+
+    def a(action: str, target: str | None, **detail: object) -> AuditEvent:
+        return AuditEvent(actor="system", action=action, target=target, detail=detail)
+
+    rid = "ACYDBNj8x2v0rRaw-Form-Response-Id"
+    assert audit_text(a("state:RECEIVED", rid, version=2, late=False)) == "Submission received (v2)"
+    assert rid not in audit_text(a("state:RECEIVED", rid, version=1, late=True))
+    assert audit_text(a("state:RECEIVED", rid, version=1, late=True)) == "Submission received (v1) after the deadline"
+    assert audit_text(a("state:PROFILED", "RECEIVED->PROFILED")) == "RECEIVED -> PROFILED"
+    assert audit_text(a("state:FAILED", "EVALUATING->FAILED", category="free_tier_repo_not_allowed")) == (
+        "EVALUATING -> FAILED: free_tier_repo_not_allowed"
+    )
+    assert audit_text(a("state:READY_FOR_REVIEW", "CRITIQUING->READY_FOR_REVIEW", total=57.0, confidence="low")) == (
+        "CRITIQUING -> READY_FOR_REVIEW: total 57, confidence low"
+    )
