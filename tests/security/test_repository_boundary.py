@@ -164,8 +164,4 @@ def test_prompt_injection_does_not_change_profile(tmp_path: Path) -> None:
     assert a.technologies == b.technologies
 
 
-@pytest.mark.xfail(reason="M2: needs rubric scoring + ADK tools to prove scores/tools/scope unchanged", strict=True)
-def test_prompt_injection_full_pipeline_unchanged() -> None:
-    from judgebench.agents import evaluate_submission  # type: ignore[attr-defined]  # noqa: F401
-
-    raise AssertionError("implement in M2: score(clean) == score(injected), tools and scope identical")
+# Full pipeline version (scores, tools, scope): tests/security/test_prompt_injection.py
