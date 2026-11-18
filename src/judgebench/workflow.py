@@ -90,9 +90,17 @@ def transition(
 
 
 def claim_next(
-    session: Session, state: State, *, max_attempts: int = MAX_ATTEMPTS, lease: timedelta = LEASE
+    session: Session,
+    state: State,
+    *,
+    event_id: uuid.UUID | None = None,
+    max_attempts: int = MAX_ATTEMPTS,
+    lease: timedelta = LEASE,
 ) -> uuid.UUID | None:
-    """Lease one submission in `state`. Commits, so the lease is visible to other workers."""
+    """Lease one submission in `state`. Commits, so the lease is visible to other workers.
+
+    event_id=None: only events with status 'active' (the real pipeline). With an event_id: only that
+    event (benchmarks run on closed scratch events and must never touch real submissions, and vice versa)."""
     claimed = session.execute(
         text("""
         UPDATE submissions SET attempts = attempts + 1, lease_until = now() + :lease
@@ -100,12 +108,15 @@ def claim_next(
             SELECT id FROM submissions
             WHERE state = :state AND attempts < :max
               AND (lease_until IS NULL OR lease_until < now())
+              AND CASE WHEN CAST(:event AS uuid) IS NULL
+                       THEN event_id IN (SELECT id FROM events WHERE status = 'active')
+                       ELSE event_id = CAST(:event AS uuid) END
             ORDER BY submitted_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1)
         RETURNING id
     """),
-        {"state": state.value, "max": max_attempts, "lease": lease},
+        {"state": state.value, "max": max_attempts, "lease": lease, "event": event_id},
     ).scalar_one_or_none()
     session.commit()
     return claimed

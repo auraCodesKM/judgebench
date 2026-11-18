@@ -171,3 +171,20 @@ def test_sweep_fails_submission_whose_worker_crashed_every_attempt(session: Sess
     session.commit()
     session.refresh(sub)
     assert sub.state == State.FAILED and sub.error_category == "worker_lease_expired"
+
+
+@pytest.mark.db
+def test_claims_are_scoped_to_active_events_or_one_event(session: Session) -> None:
+    """A benchmark worker never touches real submissions, and the real worker never touches benchmarks."""
+    real = make_event(session, "real")
+    bench = make_event(session, "bench")
+    bench.status = "closed"
+    draft = make_event(session, "draft")
+    draft.status = "draft"
+    subs = {e.slug: make_submission(session, make_team(session, e, f"T {e.slug}")) for e in (real, bench, draft)}
+    session.commit()
+
+    assert claim_next(session, State.RECEIVED, event_id=bench.id) == subs["bench"].id
+    assert claim_next(session, State.RECEIVED, event_id=bench.id) is None  # nothing else in the bench event
+    assert claim_next(session, State.RECEIVED) == subs["real"].id  # active events only
+    assert claim_next(session, State.RECEIVED) is None  # the draft event's submission is never claimed

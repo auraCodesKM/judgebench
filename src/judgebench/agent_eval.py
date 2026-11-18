@@ -105,8 +105,11 @@ def evaluate_case(
 ) -> CaseReport:
     """`submissions` are N fresh RECEIVED submissions of the same repo; they are processed concurrently."""
 
-    def worker() -> None:
-        while run_next(factory, deps) is not None:
+    with factory() as s:
+        event_id = s.get_one(Submission, submissions[0]).event_id
+
+    def worker() -> None:  # this case's event only: never real submissions
+        while run_next(factory, deps, event_id) is not None:
             pass
 
     threads = [threading.Thread(target=worker) for _ in range(workers)]

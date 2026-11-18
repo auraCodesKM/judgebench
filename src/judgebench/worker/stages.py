@@ -695,13 +695,14 @@ STAGE_SPANS = {
 }
 
 
-def run_next(sessions: sessionmaker[Session], deps: Deps) -> uuid.UUID | None:
-    """Advance at most one submission by one stage. Returns its ID, or None if nothing to do."""
+def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | None = None) -> uuid.UUID | None:
+    """Advance at most one submission by one stage. Returns its ID, or None if nothing to do.
+    event_id=None: active events only; otherwise only that event (see claim_next)."""
     for state, work in STAGES:
         with sessions() as session:
             sweep_exhausted(session, state)
             session.commit()
-            sid = claim_next(session, state)
+            sid = claim_next(session, state, event_id=event_id)
             if sid is None:
                 continue
             sub = session.get_one(Submission, sid)
