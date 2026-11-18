@@ -270,6 +270,11 @@ def read_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str) -> list[list[A
     return list(data.get("values", []))
 
 
+def padded(header: list[str]) -> list[str]:
+    """Header row to column Z: blanks out cells left over from a wider, older header."""
+    return [*header, *[""] * (26 - len(header))]
+
+
 def sheet_ids(s: AuthorizedSession, spreadsheet_id: str) -> dict[str, int]:
     meta = _call(s, "GET", f"{SHEETS}/{spreadsheet_id}", params={"fields": "sheets(properties(sheetId,title))"})
     return {sh["properties"]["title"]: sh["properties"]["sheetId"] for sh in meta.get("sheets", [])}
@@ -283,7 +288,7 @@ def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequenc
         "PUT",
         f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A1",
         params={"valueInputOption": "RAW"},
-        json={"values": [TABS[tab]]},
+        json={"values": [padded(TABS[tab])]},
     )
     _call(s, "POST", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2:Z:clear", json={})
     if not rows:

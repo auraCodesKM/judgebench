@@ -267,3 +267,23 @@ def test_team_detail_and_leaderboard_for_judges(session_factory: sessionmaker[Se
     assert isinstance(lb[8], Link) and lb[8].text == "acme/demo" and str(lb[9]) == "Watch"
     assert all(not str(v).startswith(str(sub.id)) for v in lb)  # no internal IDs in judge-facing cells
     assert not any(str(e.id)[:8] in str(r) for e in session.query(m.Evidence) for r in tabs["Evidence"].values())
+
+
+def test_layout_never_rewrites_machine_tab_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sync remaps old rows by the sheet's current header, so layout must leave machine headers alone."""
+    from judgebench.google import layout
+
+    calls: list[tuple[str, str, Any]] = []
+    have = ["Leaderboard", "Evidence", "Judge Reviews", "Evaluations"]
+
+    def fake_call(s: Any, method: str, url: str, **kw: Any) -> Any:
+        calls.append((method, url, kw.get("json")))
+        titles = have + ([t for t in TABS if t not in have] if any("addSheet" in str(c[2]) for c in calls) else [])
+        return {"sheets": [{"properties": {"title": t, "sheetId": n}} for n, t in enumerate(titles)]}
+
+    monkeypatch.setattr(layout, "_call", fake_call)
+    layout.apply_layout(None, "S")  # type: ignore[arg-type]
+    [values] = [j for m_, u, j in calls if u.endswith("values:batchUpdate")]
+    written = {d["range"].split("!")[0].strip("'") for d in values["data"]}
+    assert written == {"Judge Reviews", "Team Detail", "System", "Audit Log", "Lists"}  # new tabs + judge tab
+    assert all(len(d["values"][0]) == 26 for d in values["data"])  # leftover header cells blanked

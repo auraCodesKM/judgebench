@@ -17,6 +17,7 @@ from judgebench.google.workspace import (
     SHEETS,
     TABS,
     _call,
+    padded,
 )
 
 LAYOUT_VERSION = "2026-11-18.2"
@@ -267,11 +268,13 @@ def apply_layout(s: AuthorizedSession, spreadsheet_id: str) -> None:
             json={"requests": [{"addSheet": {"properties": {"title": t}}} for t in missing]},
         )
         meta = _call(s, "GET", f"{SHEETS}/{spreadsheet_id}", params={"fields": fields})
-    # Headers first (judge-owned Judge Reviews: header row only, its rows are never touched).
+    # Headers only where sync won't write them: new tabs, and the judge-owned Judge Reviews (row 1 only).
+    # Machine tabs keep their old header until sync rewrites them, so old rows are remapped by column name.
+    heads = [t for t in TABS if t in missing or t in JUDGE_EDITABLE]
     _call(
         s,
         "POST",
         f"{SHEETS}/{spreadsheet_id}/values:batchUpdate",
-        json={"valueInputOption": "RAW", "data": [{"range": f"'{t}'!A1", "values": [h]} for t, h in TABS.items()]},
+        json={"valueInputOption": "RAW", "data": [{"range": f"'{t}'!A1", "values": [padded(TABS[t])]} for t in heads]},
     )
     _call(s, "POST", f"{SHEETS}/{spreadsheet_id}:batchUpdate", json={"requests": layout_requests(meta)})
