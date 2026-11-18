@@ -217,3 +217,23 @@ def test_usage_report_per_submission_and_agent(session_factory: sessionmaker[Ses
     assert next(a for a in per_agent if a.label == "claim_investigator").calls == 2
     text = usage.render(per_sub, per_agent)
     assert "Team Alpha v1" in text and "p95 ms" in text
+
+
+def test_organiser_reevaluation_is_a_new_version_on_the_same_commit(
+    session_factory: sessionmaker[Session], session: Session
+) -> None:
+    from judgebench.api.ingest import reevaluate
+
+    sub = submit(session, "Team Alpha", deployed_url="https://alpha.example.app/")
+    d = deps(repos.ALPHA_RAG, fake())
+    drive(session_factory, d)
+    v2 = reevaluate(session, session.get_one(m.Event, sub.event_id), "team alpha")
+    session.commit()
+    drive(session_factory, d)
+    session.refresh(sub)
+    session.refresh(v2)
+    assert (v2.version, v2.state, v2.commit_sha) == (2, State.READY_FOR_REVIEW, sub.commit_sha)
+    assert (v2.submitted_at, v2.form_answers) == (sub.submitted_at, sub.form_answers)
+    assert sub.state == State.READY_FOR_REVIEW  # v1 and its evaluation are kept
+    assert "Re-evaluation requested by the organiser (v2)" in lines(session, v2)
+    assert session.query(m.Evaluation).filter_by(status="ready").count() == 2

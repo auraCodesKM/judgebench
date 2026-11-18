@@ -154,3 +154,50 @@ def sync_event(session: Session, event: Event, fetch: Any) -> list[uuid.UUID]:
         integ.cursor = {"since": max([since or "", *stamps])}
     session.commit()
     return created
+
+
+def reevaluate(session: Session, event: Event, team_name: str) -> Submission:
+    """Organiser re-run: the team's latest submission again as the next version, same answers and same
+    submission time (so the same pinned commit). History is kept; nothing is overwritten. Caller commits."""
+    latest = session.scalars(
+        select(Submission)
+        .join(Team, Team.id == Submission.team_id)
+        .where(Submission.event_id == event.id, func.lower(Team.name) == team_name.strip().lower())
+        .order_by(Submission.version.desc())
+        .limit(1)
+    ).first()
+    if latest is None:
+        raise ValueError(f"no submission for team {team_name!r} in {event.slug}")
+    version = latest.version + 1
+    sub = Submission(
+        tenant_id=event.tenant_id,
+        event_id=event.id,
+        team_id=latest.team_id,
+        form_response_id=f"{latest.form_response_id.split('#')[0]}#rerun-v{version}",
+        version=version,
+        submitted_at=latest.submitted_at,
+        repo_url=latest.repo_url,
+        demo_url=latest.demo_url,
+        deck_url=latest.deck_url,
+        deployed_url=latest.deployed_url,
+        claimed_categories=latest.claimed_categories,
+        form_answers=dict(latest.form_answers),
+        state=State.RECEIVED,
+        source_hashes={},
+    )
+    session.add(sub)
+    session.flush()
+    scope = {"tenant_id": event.tenant_id, "event_id": event.id, "submission_id": sub.id}
+    session.add(
+        AuditEvent(
+            **scope,
+            actor="operator",
+            action=f"state:{State.RECEIVED}",
+            target=f"rerun of v{latest.version}",
+            detail={"version": version, "late": False, "rerun_of": str(latest.id)},
+        )
+    )
+    session.add(
+        Notification(**scope, stage=State.RECEIVED.value, text=f"Re-evaluation requested by the organiser (v{version})")
+    )
+    return sub

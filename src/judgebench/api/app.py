@@ -46,6 +46,8 @@ def sync(event_id: uuid.UUID) -> dict[str, int]:
 
 @app.post("/events/{event_id}/sheets/sync")
 def sheets_sync(event_id: uuid.UUID) -> dict[str, object]:
+    from judgebench.google.layout import apply_layout
+
     g = workspace.session(Path(settings().google_token_file))
     with sessions()() as s:
         r = sync_workbook(
@@ -53,5 +55,6 @@ def sheets_sync(event_id: uuid.UUID) -> dict[str, object]:
             _event(s, event_id),
             lambda sid, tab: workspace.read_tab(g, sid, tab),
             lambda sid, tab, rows: workspace.write_tab(g, sid, tab, rows),
+            lambda sid: apply_layout(g, sid),
         )
     return {"written_tabs": r.written_tabs, "overrides": r.overrides, "reviews": r.reviews}

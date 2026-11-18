@@ -1,7 +1,9 @@
 """DB -> judging workbook, preserving every judge edit (§6.3).
 
-Machine tabs (Leaderboard, Evaluations, Evidence, Suggested Questions, Audit Log) carry a stable
-row key in their last column. On each sync:
+Judge-facing tabs: Leaderboard (one row per team, best first), Team Detail (per criterion, grouped by
+team), Evidence (claim-relevant findings only), Judge Reviews (judges type here). Hidden + protected:
+System, Audit Log, Lists (dropdown sources). Every machine tab carries a stable row key in its last,
+hidden column, so edits follow their team when rows re-sort. On each sync:
 
   current = what the Sheet shows now (read back)
   last    = what we wrote last time (stored in the DB, per cell)
@@ -21,6 +23,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -28,6 +31,7 @@ from sqlalchemy.orm import Session
 from judgebench.agents.modes import display
 from judgebench.db.models import (
     AuditEvent,
+    Claim,
     CriterionScore,
     Evaluation,
     Event,
@@ -38,8 +42,10 @@ from judgebench.db.models import (
     Submission,
     Team,
 )
+from judgebench.google.workspace import JUDGE_EDITABLE, KEY, TABS, Link, link, links
+from judgebench.worker.github import parse_repo_url
 
-Cell = str | int | float
+Cell = str | int | float | Link
 Reader = Callable[[str, str], list[list[Any]]]  # (spreadsheet_id, tab) -> rows incl. header
 Writer = Callable[[str, str, Sequence[Sequence[Cell]]], None]  # rows excl. header
 CATEGORY_LABELS = {
@@ -49,7 +55,6 @@ CATEGORY_LABELS = {
     "vision_multimodal": "Vision",
     "ai_infrastructure": "AI infra",
 }
-KEY_HEADER = "Row key (system)"
 _NUM = re.compile(r"^-?\d+(\.\d+)?$")
 
 
@@ -57,6 +62,8 @@ def norm(v: Any) -> str:
     """Compare cells the way Sheets returns them: 9, 9.0 and "9" are the same value."""
     if v is None:
         return ""
+    if isinstance(v, Link):
+        return v.text
     if isinstance(v, bool):
         return str(v).upper()
     if isinstance(v, int | float) or (isinstance(v, str) and _NUM.match(v.strip())):
@@ -130,78 +137,181 @@ def _ready_eval(session: Session, sub: Submission) -> Evaluation | None:
     ).first()
 
 
+def _rubric(event: Event) -> tuple[list[Any], list[str]]:
+    """(criteria, judge names) from the event config; the default rubric if the config has none."""
+    from judgebench.event_config import DEFAULT_RUBRIC, EventConfig
+
+    try:
+        cfg = EventConfig.model_validate(event.config)
+        return list(cfg.rubric), [j.name for j in cfg.judges]
+    except ValueError:
+        return list(DEFAULT_RUBRIC), []
+
+
+def _one_line(text: str, limit: int = 180) -> str:
+    first = re.split(r"(?<=[.!?])\s", (text or "").strip().replace("\n", " "), maxsplit=1)[0]
+    return first if len(first) <= limit else first[: limit - 1] + "…"
+
+
+def _source(e: Evidence, sub: Submission) -> tuple[str, str | None]:
+    """(label, https link) for an evidence item: GitHub file#line at the pinned commit, CI run, app, video."""
+    ref = parse_repo_url(sub.repo_url or "")
+    gh = f"https://github.com/{ref.owner}/{ref.repo}" if ref else None
+    p = e.provenance or {}
+    loc = e.source_locator or ""
+    if p.get("path") and gh:
+        a, b = p.get("line_start"), p.get("line_end")
+        lines = f"#L{a}" + (f"-L{b}" if b and b != a else "") if a else ""
+        return f"{p['path']}{lines}", f"{gh}/blob/{sub.commit_sha or 'HEAD'}/{p['path']}{lines}"
+    if loc.startswith("ci:run/") and gh:
+        return f"CI run {loc[7:]}", f"{gh}/actions/runs/{loc[7:]}"
+    if e.source_type == "ci":
+        return "CI", f"{gh}/actions" if gh else None
+    if e.source_type == "live_check":
+        return (loc[5:] if loc.startswith("live:") else "live app"), sub.deployed_url
+    if e.source_type == "demo":
+        at = loc.split("#", 1)[1] if loc.startswith("demo#") else ""
+        return "demo video" + (f" at {at}" if at else ""), sub.demo_url
+    if e.source_type == "form":
+        return "submission form", None
+    return loc[:120], None
+
+
+def _finding_name(e: Evidence) -> str:
+    return e.claim or e.key.split(".", 1)[-1].replace("_", " ").replace(".", ": ")
+
+
+def _concern(sub: Submission, ev: Evaluation | None, scores: list[CriterionScore], claims: list[Claim]) -> str:
+    if ev is None:
+        if sub.state.value == "FAILED":
+            return f"Not evaluated: {sub.error_category or 'failed'}"
+        return f"Not evaluated yet ({sub.state.value.lower().replace('_', ' ')})"
+    if c := next((c for c in claims if c.verification_status == "CONTRADICTED"), None):
+        return _one_line(f'Claim contradicted: "{c.text[:80]}". {c.rationale or ""}')
+    if f := next((c for c in scores if c.flagged), None):
+        return _one_line(f"{f.criterion_id}: {f.critic_note or 'flagged by the critic'}")
+    weakest = min(scores, key=lambda c: c.score / c.max_score if c.max_score else 1, default=None)
+    if weakest is None:
+        return ""
+    return _one_line(f"Weakest: {weakest.criterion_id} {weakest.score:g}/{weakest.max_score:g}. {weakest.rationale}")
+
+
+CONFIDENCE = {"high": "high", "medium": "med", "low": "low"}
+
+
 def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, list[Cell]]]:
-    tabs: dict[str, dict[str, list[Cell]]] = {
-        t: {} for t in ("Leaderboard", "Evaluations", "Evidence", "Suggested Questions", "Audit Log")
-    }
+    """Every machine tab as {row key: cells}. Judge-facing order: by score, best first."""
+    event = session.get_one(Event, event_id)
+    rubric, judges = _rubric(event)
+    names = {c.id: c.name for c in rubric}
+    tabs: dict[str, dict[str, list[Cell]]] = {t: {} for t in TABS if t not in JUDGE_EDITABLE}
+    teams = []
     for team, sub in _latest_subs(session, event_id):
-        cats = (
-            session.scalars(
-                select(RepositoryProfileRow.categories)
-                .where(RepositoryProfileRow.submission_id == sub.id)
-                .order_by(RepositoryProfileRow.created_at.desc())
-                .limit(1)
-            ).first()
-            or {}
-        )
         ev = _ready_eval(session, sub)
+        scores = (
+            list(
+                session.scalars(
+                    select(CriterionScore)
+                    .where(CriterionScore.evaluation_id == ev.id)
+                    .order_by(CriterionScore.criterion_id)
+                )
+            )
+            if ev
+            else []
+        )
+        teams.append((team, sub, ev, scores))
+    teams.sort(key=lambda t: (t[2] is None or t[2].total_score is None, -((t[2] and t[2].total_score) or 0), t[0]))
+
+    rank = 0
+    max_total = sum(c.weight for c in rubric)
+    for team, sub, ev, scores in teams:
+        claims = list(session.scalars(select(Claim).where(Claim.submission_id == sub.id).order_by(Claim.created_at)))
+        attempt = sub.source_hashes.get("evidence_attempt")
+        evidence = {
+            str(e.id): e
+            for e in session.scalars(
+                select(Evidence)
+                .where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt)
+                .order_by(Evidence.created_at, Evidence.key)
+            )
+        }
+        scored = ev is not None and ev.total_score is not None
+        rank += scored
+        ref = parse_repo_url(sub.repo_url or "")
+        questions = [str(q) for q in (ev.suggested_questions if ev else [])] or [
+            c.suggested_question for c in scores if c.suggested_question
+        ]
+        flags = sum(c.flagged for c in scores) + sum(c.verification_status == "CONTRADICTED" for c in claims)
+        host = urlsplit(sub.deployed_url or "").hostname or ""
         tabs["Leaderboard"][f"team:{sub.team_id}"] = [
+            rank if scored else "",
+            team,
+            str(sub.form_answers.get("project_title", ""))[:120],
+            ev.total_score if ev and ev.total_score is not None else "",
+            CONFIDENCE.get(ev.confidence or "", ev.confidence or "") if ev else "",
+            flags if ev else "",
+            _concern(sub, ev, scores, claims),
+            questions[0] if questions else "",
+            link(f"{ref.owner}/{ref.repo}", sub.repo_url) if ref else (sub.repo_url or ""),
+            link("Watch", sub.demo_url) if sub.demo_url else "",
+            link(host, sub.deployed_url) if host else "",
+            display(ev.model) if ev else "",
+        ]
+        tabs["System"][f"team:{sub.team_id}"] = [
             team,
             sub.version,
             (sub.commit_sha or "")[:7],
             sub.state.value,
-            ", ".join(CATEGORY_LABELS.get(c, c) for c in sorted(cats)),
-            ev.total_score if ev and ev.total_score is not None else "",
-            (ev.confidence or "") if ev else "",
-            display(ev.model) if ev else "",
+            ", ".join(CATEGORY_LABELS.get(c, c) for c in sorted(_categories(session, sub))),
             sub.updated_at.strftime("%Y-%m-%d %H:%M"),
         ]
-        short = {}
-        attempt = sub.source_hashes.get("evidence_attempt")
-        for e in session.scalars(
-            select(Evidence)
-            .where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt)
-            .order_by(Evidence.created_at, Evidence.key)
-        ):
-            short[str(e.id)] = str(e.id)[:8]
-            tabs["Evidence"][f"ev:{e.id}"] = [
-                team,
-                str(e.id)[:8],
-                e.claim or e.key,
-                e.observation[:500],
-                f"{e.source_type} @ {e.source_locator}"[:300],
-                e.status,
-                round(e.confidence, 2),
-            ]
+
+        cited = {i for c in scores for i in c.evidence_ids} | {str(i) for c in claims for i in c.evidence_ids}
+        for eid, e in evidence.items():
+            if eid in cited or e.status == "CONTRADICTED":
+                label, uri = _source(e, sub)
+                tabs["Evidence"][f"ev:{e.id}"] = [
+                    team,
+                    _finding_name(e)[:200],
+                    e.observation[:400],
+                    e.status,
+                    link(label, uri),
+                ]
         if ev is None:
             continue
-        for c in session.scalars(
-            select(CriterionScore).where(CriterionScore.evaluation_id == ev.id).order_by(CriterionScore.criterion_id)
-        ):
-            tabs["Evaluations"][f"crit:{sub.id}:{c.criterion_id}"] = [
+        tabs["Team Detail"][f"hdr:{sub.id}"] = [
+            team,
+            "TEAM",
+            f"{ev.total_score:g} / {max_total}" if scored else "",
+            f"Confidence {CONFIDENCE.get(ev.confidence or '', ev.confidence)}; evaluated by {display(ev.model)}",
+            "",
+            f"{flags} flag{'s' if flags != 1 else ''}" if flags else "",
+            "\n".join(f"• {q}" for q in questions[:5]),
+        ]
+        for c in scores:
+            note = c.critic_note or ""
+            if c.pre_critic_score is not None and c.pre_critic_score != c.score:
+                note = f"{c.pre_critic_score:g} → {c.score:g}: {note}".rstrip(": ")
+            tabs["Team Detail"][f"crit:{sub.id}:{c.criterion_id}"] = [
                 team,
-                c.criterion_id,
-                c.score,
-                c.max_score,
-                c.rationale[:1000],
-                ", ".join(short.get(i, i[:8]) for i in c.evidence_ids),
-                round(c.confidence, 2),
-                c.pre_critic_score if c.pre_critic_score is not None else "",
-                c.critic_note or "",
-            ]
-        for n, q in enumerate(ev.suggested_questions):
-            tabs["Suggested Questions"][f"q:{sub.id}:{n}"] = [team, str(q), "evaluator"]
-        for c in session.scalars(
-            select(CriterionScore).where(
-                CriterionScore.evaluation_id == ev.id, CriterionScore.suggested_question.is_not(None)
-            )
-        ):
-            tabs["Suggested Questions"][f"q:{sub.id}:{c.criterion_id}"] = [
-                team,
+                names.get(c.criterion_id, c.criterion_id),
+                f"{c.score:g} / {c.max_score:g}",
+                _one_line(c.rationale),
+                links([_source(evidence[i], sub) for i in c.evidence_ids if i in evidence][:4]),
+                note,
                 c.suggested_question or "",
-                c.criterion_id,
             ]
-    teams = {s.id: t for t, s in _latest_subs(session, event_id)}
+
+    team_names = [t for t, *_ in teams]
+    for n in range(max(len(team_names), len(rubric), len(judges))):
+        tabs["Lists"][f"list:{n}"] = [
+            team_names[n] if n < len(team_names) else "",
+            rubric[n].name if n < len(rubric) else "",
+            rubric[n].weight if n < len(rubric) else "",
+            judges[n] if n < len(judges) else "",
+        ]
+
+    subs = {s.id: t for t, s, *_ in teams}
     for a in session.scalars(
         select(AuditEvent)
         .where(AuditEvent.event_id == event_id, AuditEvent.action.like("state:%"))
@@ -210,16 +320,30 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
     ):
         tabs["Audit Log"][f"audit:{a.id}"] = [
             a.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            teams.get(a.submission_id, "") if a.submission_id else "",
+            subs.get(a.submission_id, "") if a.submission_id else "",
             a.action,
             audit_text(a),
         ]
     return tabs
 
 
+def _categories(session: Session, sub: Submission) -> dict[str, Any]:
+    return (
+        session.scalars(
+            select(RepositoryProfileRow.categories)
+            .where(RepositoryProfileRow.submission_id == sub.id)
+            .order_by(RepositoryProfileRow.created_at.desc())
+            .limit(1)
+        ).first()
+        or {}
+    )
+
+
 def audit_text(a: AuditEvent) -> str:
     """Readable Detail column. Raw IDs (e.g. the Form response ID) stay in the DB, not the Sheet."""
     d, state = a.detail or {}, a.action.removeprefix("state:")
+    if state == "RECEIVED" and d.get("rerun_of"):
+        return f"Re-evaluation requested by the organiser (v{d.get('version', '?')})"
     if state == "RECEIVED":
         return f"Submission received (v{d.get('version', '?')})" + (" after the deadline" if d.get("late") else "")
     text = (a.target or state).replace("->", " -> ")
@@ -242,22 +366,39 @@ class SyncReport:
     reviews: int = 0
 
 
+def _remap(row: Sequence[Any], old: Sequence[str], new: Sequence[str]) -> list[Any]:
+    """Move cells to the columns of the same name in `new` (layout migrations keep judge edits)."""
+    at = {str(h): i for i, h in enumerate(old)}
+    return [row[at[h]] if h in at and at[h] < len(row) else "" for h in new]
+
+
 def _by_key(rows: list[list[Any]], header: list[str]) -> dict[str, list[Any]]:
-    k = len(header) - 1
-    return {str(r[k]): r[:k] for r in rows[1:] if len(r) > k and str(r[k]).strip()}
+    """Sheet rows by their row key, columns arranged as `header` (whatever layout the sheet has now)."""
+    if not rows:
+        return {}
+    old = [str(h) for h in rows[0]]
+    if KEY not in old:
+        return {}
+    k = old.index(KEY)
+    return {str(r[k]): _remap(r, old, header)[:-1] for r in rows[1:] if len(r) > k and str(r[k]).strip()}
 
 
-def sync_workbook(session: Session, event: Event, read: Reader, write: Writer) -> SyncReport:
+Layout = Callable[[str], None]  # (spreadsheet_id) -> apply formatting
+
+
+def sync_workbook(
+    session: Session, event: Event, read: Reader, write: Writer, layout: Layout | None = None
+) -> SyncReport:
     from judgebench import tracing
 
     with tracing.span("sheets.publish", event_id=event.id) as s:
-        report = _sync(session, event, read, write)
+        report = _sync(session, event, read, write, layout)
         s.set_attributes({"jb.tabs_written": len(report.written_tabs), "jb.overrides": report.overrides})
         return report
 
 
-def _sync(session: Session, event: Event, read: Reader, write: Writer) -> SyncReport:
-    from judgebench.google.workspace import TABS
+def _sync(session: Session, event: Event, read: Reader, write: Writer, layout: Layout | None) -> SyncReport:
+    from judgebench.google.layout import LAYOUT_VERSION
 
     integ = session.scalars(
         select(EventIntegration).where(
@@ -265,22 +406,29 @@ def _sync(session: Session, event: Event, read: Reader, write: Writer) -> SyncRe
         )
     ).one()
     sid = integ.external_ids["spreadsheet_id"]
+    if layout is not None and integ.cursor.get("layout") != LAYOUT_VERSION:
+        layout(sid)  # new tabs, widths, colours, dropdowns, hidden + protected tabs
+        integ.cursor = {**integ.cursor, "layout": LAYOUT_VERSION}
     snapshots: dict[str, Any] = dict(integ.cursor.get("tabs", {}))
+    headers: dict[str, list[str]] = dict(integ.cursor.get("headers", {}))
     seen_overrides = set(integ.cursor.get("overrides", []))
     report = SyncReport()
     for tab, new in build_tabs(session, event.id).items():
         header = TABS[tab]
         sheet = read(sid, tab)
         current = _by_key(sheet, header)
-        m = merge(new, current, snapshots.get(tab, {}))
+        old = headers.get(tab) or ([str(h) for h in sheet[0]] if sheet else header)
+        last = {k: _remap([*v, k], old, header)[:-1] for k, v in snapshots.get(tab, {}).items()}
+        m = merge(new, current, last)
         rows = [[*r, *[""] * (len(header) - 1 - len(r)), key] for key, r in m.rows.items()]
         before = [[norm(v) for v in [*current[k], *[""] * (len(header) - 1 - len(current[k])), k]] for k in current]
         if not sheet or [str(h) for h in sheet[0]] != header or [[norm(v) for v in r] for r in rows] != before:
             write(sid, tab, rows)
             report.written_tabs.append(tab)
         snapshots[tab] = m.written
+        headers[tab] = header
         for key, col, ai, human in m.overrides:
-            marker = f"{tab}|{key}|{col}|{human}"
+            marker = f"{tab}|{key}|{header[col]}|{human}"
             if marker in seen_overrides:
                 continue
             seen_overrides.add(marker)
@@ -296,24 +444,32 @@ def _sync(session: Session, event: Event, read: Reader, write: Writer) -> SyncRe
                 )
             )
     report.reviews = ingest_reviews(session, event, read(sid, "Judge Reviews"))
-    integ.cursor = {**integ.cursor, "tabs": snapshots, "overrides": sorted(seen_overrides)}
+    integ.cursor = {
+        **integ.cursor,
+        "tabs": snapshots,
+        "headers": headers,
+        "overrides": sorted(seen_overrides),
+    }
     session.commit()
     return report
 
 
 def ingest_reviews(session: Session, event: Event, rows: list[list[Any]]) -> int:
     """Judge Reviews tab -> judge_reviews (source=sheet). The Sheet is authoritative for these rows,
-    so the event's sheet-sourced reviews are replaced by the current tab contents."""
+    so the event's sheet-sourced reviews are replaced by the current tab contents. Criteria may be
+    picked by name (the dropdown) or typed as their id; both are stored as the id."""
     teams = {t.lower(): s for t, s in _latest_subs(session, event.id)}
+    rubric, _ = _rubric(event)
+    crit_ids = {c.name.lower(): c.id for c in rubric} | {c.id.lower(): c.id for c in rubric}
     session.query(JudgeReview).filter(JudgeReview.event_id == event.id, JudgeReview.source == "sheet").delete()
     count = 0
     for r in rows[1:]:
-        r = [*r, *[""] * 6][:6]
-        team, judge, criterion, score, comment, reason = (str(v).strip() for v in r)
+        team, judge, criterion, score, comment = (str(v).strip() for v in [*r, *[""] * 5][:5])
         sub = teams.get(team.lower())
         ev = _ready_eval(session, sub) if sub else None
-        if ev is None or not (score or comment or reason):
+        if ev is None or not (score or comment):
             continue
+        crit = crit_ids.get(criterion.lower(), criterion[:60]) or None
         session.add(
             JudgeReview(
                 tenant_id=event.tenant_id,
@@ -321,10 +477,9 @@ def ingest_reviews(session: Session, event: Event, rows: list[list[Any]]) -> int
                 evaluation_id=ev.id,
                 judge_label=judge[:200],
                 source="sheet",
-                criterion_id=criterion[:60] or None,
-                human_scores={criterion or "overall": float(score)} if _NUM.match(score) else {},
+                criterion_id=crit,
+                human_scores={crit or "overall": float(score)} if _NUM.match(score) else {},
                 comments=comment or None,
-                override_reason=reason or None,
             )
         )
         count += 1

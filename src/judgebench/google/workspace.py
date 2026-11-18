@@ -164,38 +164,66 @@ def list_responses(s: AuthorizedSession, form_id: str, since: str | None) -> lis
 
 # --- Sheets / Drive -------------------------------------------------------------------
 
-KEY = "Row key (system)"  # stable row identity; lets judge edits survive re-sorting and refreshes
+KEY = "Row key (system)"  # stable row identity (hidden column); lets judge edits survive re-sorting
 TABS: dict[str, list[str]] = {
+    # Judge-facing, in this order. Five minutes per team: decide from the Leaderboard, drill into Team Detail.
     "Leaderboard": [
+        "Rank",
         "Team",
-        "Version",
-        "Commit",
-        "Status",
-        "Detected categories",
-        "Score",
+        "Project",
+        "Score /100",
         "Confidence",
+        "Flags",
+        "Biggest concern",
+        "Question to ask",
+        "Repo",
+        "Demo",
+        "Live app",
         "Evaluated by",
-        "Updated (UTC)",
         KEY,
     ],
-    "Evaluations": [
-        "Team",
-        "Criterion",
-        "Score",
-        "Max",
-        "Rationale",
-        "Evidence IDs",
-        "Confidence",
-        "Score before critic",
-        "Critic note",
-        KEY,
-    ],
-    "Evidence": ["Team", "Evidence ID", "Claim / finding", "Observation", "Source", "Status", "Confidence", KEY],
-    "Judge Reviews": ["Team", "Judge", "Criterion", "Human score", "Comment", "Override reason"],
-    "Suggested Questions": ["Team", "Question", "From", KEY],
+    "Team Detail": ["Team", "Criterion", "Score / Max", "Reason", "Evidence", "Critic note", "Question to ask", KEY],
+    "Evidence": ["Team", "Finding", "What we saw", "Status", "Source", KEY],
+    "Judge Reviews": ["Team", "Judge", "Criterion", "Score", "Comment"],
+    # Hidden, protected.
+    "System": ["Team", "Version", "Commit", "Status", "Detected categories", "Updated (UTC)", KEY],
     "Audit Log": ["Time (UTC)", "Team", "Action", "Detail", KEY],
+    "Lists": ["Teams", "Criteria", "Max", "Judges", KEY],  # dropdown sources for Judge Reviews
 }
 JUDGE_EDITABLE = {"Judge Reviews"}
+HIDDEN = {"System", "Audit Log", "Lists"}
+LEGACY_TABS = ("Evaluations", "Suggested Questions")  # pre-2026-11-18 layout: hidden, never deleted
+
+
+@dataclass(frozen=True)
+class Link:
+    """A cell whose text carries one or more links (Sheets rich text, never a formula)."""
+
+    text: str
+    spans: tuple[tuple[int, int, str], ...] = ()  # (start, end, https uri)
+
+    def __str__(self) -> str:
+        return self.text
+
+
+def safe_uri(uri: str | None) -> str | None:
+    """Only plain https links reach the Sheet (no javascript:, data:, or http to odd hosts)."""
+    return uri if uri and uri.startswith("https://") and " " not in uri and len(uri) < 2000 else None
+
+
+def link(text: str, uri: str | None) -> Link | str:
+    return Link(text, ((0, len(text), u),)) if (u := safe_uri(uri)) and text else text
+
+
+def links(items: Sequence[tuple[str, str | None]], sep: str = "\n") -> Link | str:
+    text, spans = "", []
+    for label, uri in items:
+        if text:
+            text += sep
+        if u := safe_uri(uri):
+            spans.append((len(text), len(text) + len(label), u))
+        text += label
+    return Link(text, tuple(spans)) if spans else text
 
 
 def create_judging_workbook(s: AuthorizedSession, title: str) -> dict[str, Any]:
@@ -209,7 +237,6 @@ def create_judging_workbook(s: AuthorizedSession, title: str) -> dict[str, Any]:
         },
     )
     sid = book["spreadsheetId"]
-    tab_ids = {sh["properties"]["title"]: sh["properties"]["sheetId"] for sh in book["sheets"]}
     _call(
         s,
         "POST",
@@ -219,28 +246,10 @@ def create_judging_workbook(s: AuthorizedSession, title: str) -> dict[str, Any]:
             "data": [{"range": f"'{t}'!A1", "values": [hdr]} for t, hdr in TABS.items()],
         },
     )
-    # Protection is a guard against accidental edits, not a security boundary (§6.3).
-    _call(
-        s,
-        "POST",
-        f"{SHEETS}/{sid}:batchUpdate",
-        json={
-            "requests": [
-                {
-                    "addProtectedRange": {
-                        "protectedRange": {
-                            "range": {"sheetId": tab_ids[t]},
-                            "warningOnly": True,
-                            "description": "System-managed: regenerated automatically",
-                        }
-                    }
-                }
-                for t in TABS
-                if t not in JUDGE_EDITABLE
-            ]
-        },
-    )
-    return {"spreadsheet_id": sid, "url": book["spreadsheetUrl"], "tabs": tab_ids}
+    from judgebench.google.layout import apply_layout
+
+    apply_layout(s, sid)
+    return {"spreadsheet_id": sid, "url": book["spreadsheetUrl"]}
 
 
 def share_with(s: AuthorizedSession, file_id: str, email: str) -> None:
@@ -261,9 +270,14 @@ def read_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str) -> list[list[A
     return list(data.get("values", []))
 
 
-def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[str | int | float]]) -> None:
+def sheet_ids(s: AuthorizedSession, spreadsheet_id: str) -> dict[str, int]:
+    meta = _call(s, "GET", f"{SHEETS}/{spreadsheet_id}", params={"fields": "sheets(properties(sheetId,title))"})
+    return {sh["properties"]["title"]: sh["properties"]["sheetId"] for sh in meta.get("sheets", [])}
+
+
+def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[Any]]) -> None:
     """Rewrite the header (so new columns reach existing workbooks) and replace everything under it.
-    RAW: values are never parsed as formulas."""
+    RAW: values are never parsed as formulas. Link cells then get rich-text links on top of the same text."""
     _call(
         s,
         "PUT",
@@ -272,11 +286,38 @@ def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequenc
         json={"values": [TABS[tab]]},
     )
     _call(s, "POST", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2:Z:clear", json={})
-    if rows:
-        _call(
-            s,
-            "PUT",
-            f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2",
-            params={"valueInputOption": "RAW"},
-            json={"values": [list(r) for r in rows]},
-        )
+    if not rows:
+        return
+    _call(
+        s,
+        "PUT",
+        f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2",
+        params={"valueInputOption": "RAW"},
+        json={"values": [[str(v) if isinstance(v, Link) else v for v in r] for r in rows]},
+    )
+    requests = link_requests(sheet_ids(s, spreadsheet_id)[tab], rows)
+    if requests:
+        _call(s, "POST", f"{SHEETS}/{spreadsheet_id}:batchUpdate", json={"requests": requests})
+
+
+def link_requests(sheet_id: int, rows: Sequence[Sequence[Any]]) -> list[dict[str, Any]]:
+    out = []
+    for r, row in enumerate(rows, start=1):
+        for c, v in enumerate(row):
+            if not isinstance(v, Link) or not v.spans:
+                continue
+            runs: list[dict[str, Any]] = []
+            for start, end, uri in v.spans:
+                runs.append({"startIndex": start, "format": {"link": {"uri": uri}}})
+                if end < len(v.text):
+                    runs.append({"startIndex": end, "format": {}})
+            out.append(
+                {
+                    "updateCells": {
+                        "start": {"sheetId": sheet_id, "rowIndex": r, "columnIndex": c},
+                        "rows": [{"values": [{"userEnteredValue": {"stringValue": v.text}, "textFormatRuns": runs}]}],
+                        "fields": "userEnteredValue,textFormatRuns",
+                    }
+                }
+            )
+    return out

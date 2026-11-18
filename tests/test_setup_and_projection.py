@@ -79,6 +79,7 @@ def test_leaderboard_shows_latest_version_and_is_written_raw(session: Session) -
 
     sheet = FakeSheet()
     assert "Leaderboard" in sync_workbook(session, event, sheet.read, sheet.write).written_tabs
-    rows = sheet.tabs["Leaderboard"][1:]
+    rows = sheet.tabs["System"][1:]
     assert [r[:5] for r in rows] == [['=HYPERLINK("http://x")', 2, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]]
+    assert sheet.tabs["Leaderboard"][1][1] == '=HYPERLINK("http://x")'  # written RAW: text, never a formula
     assert sync_workbook(session, event, sheet.read, sheet.write).written_tabs == []  # unchanged -> no write

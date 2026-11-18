@@ -59,4 +59,6 @@ def test_form_submission_to_telegram_and_leaderboard(session_factory: sessionmak
     assert telegram[1].endswith("-> adapters: Agentic, RAG")
     assert sheet.writes.count("Leaderboard") == 1  # second iteration changed nothing, so no second write
     [_, row] = sheet.tabs["Leaderboard"]
-    assert row[:5] == ["Team Alpha", 1, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]
+    assert row[1] == "Team Alpha" and row[6] == "Not evaluated yet (profiled)"
+    [_, sysrow] = sheet.tabs["System"]
+    assert sysrow[:5] == ["Team Alpha", 1, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]

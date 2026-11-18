@@ -6,6 +6,7 @@
   status <slug>             submissions and their states
   doctor                    check every credential and dependency
   usage <slug>              tokens, cost, latency per submission and agent
+  reevaluate <slug> <team>  re-run a team's latest submission as the next version
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
   bench [--runs N]          demo-cast benchmark (retrieval + agent trajectories)
@@ -72,6 +73,7 @@ def _step(name: str, fn: object) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     from judgebench.api.ingest import sync_event
     from judgebench.google import workspace
+    from judgebench.google.layout import apply_layout
     from judgebench.google.sheets_sync import sync_workbook
     from judgebench.telegram.notify import TelegramBot, drain
     from judgebench.worker.stages import Deps, run_next
@@ -108,6 +110,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                     event,
                     lambda sid, tab: workspace.read_tab(google, sid, tab),
                     lambda sid, tab, rows: workspace.write_tab(google, sid, tab, rows),
+                    lambda sid: apply_layout(google, sid),
                 )
                 if r.written_tabs or r.overrides:
                     log.info("%s: sheets %s, %d judge override(s) kept", event.slug, r.written_tabs, r.overrides)
@@ -156,6 +159,16 @@ def cmd_agreement(args: argparse.Namespace) -> None:
     with sessions()() as s:
         event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
         print(agreement.render(*agreement.report(s, event.id)))
+
+
+def cmd_reevaluate(args: argparse.Namespace) -> None:
+    from judgebench.api.ingest import reevaluate
+
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        sub = reevaluate(s, event, args.team)
+        s.commit()
+        print(f"{args.team}: v{sub.version} queued (same answers, same pinned commit); `run` picks it up")
 
 
 def cmd_explain(args: argparse.Namespace) -> None:
@@ -246,6 +259,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--k", type=int, default=3)
     p.add_argument("--only", action="append", help="cast repo name (repeatable), e.g. --only beta")
     p.set_defaults(fn=cmd_bench)
+    p = sub.add_parser("reevaluate")
+    p.add_argument("slug")
+    p.add_argument("team")
+    p.set_defaults(fn=cmd_reevaluate)
     p = sub.add_parser("explain")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_explain)
