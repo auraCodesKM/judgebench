@@ -4,6 +4,11 @@
   setup <events/x.yaml>     create/refresh event, Google Form + judging workbook, judges
   run [--once]              local loop: poll Form -> profile -> Telegram -> Leaderboard
   status <slug>             submissions and their states
+  doctor                    check every credential and dependency
+  usage <slug>              tokens, cost, latency per submission and agent
+  agreement <slug>          AI vs human judge scores per criterion
+  bench [--runs N]          demo-cast benchmark (retrieval + agent trajectories)
+  copilot-poll              local Judge Copilot via getUpdates
 
 On Cloud Run the same steps run as separate services (api / worker / telegram) instead of `run`.
 """
@@ -144,6 +149,14 @@ def cmd_usage(args: argparse.Namespace) -> None:
         print(usage.render(*usage.report(s, event.id)))
 
 
+def cmd_agreement(args: argparse.Namespace) -> None:
+    from judgebench import agreement
+
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        print(agreement.render(*agreement.report(s, event.id)))
+
+
 def cmd_bench(args: argparse.Namespace) -> None:
     from judgebench import agent_eval, bench
     from judgebench.worker.stages import Deps
@@ -223,6 +236,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--k", type=int, default=3)
     p.set_defaults(fn=cmd_bench)
+    p = sub.add_parser("agreement")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_agreement)
     p = sub.add_parser("usage")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_usage)
