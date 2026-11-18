@@ -136,6 +136,14 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("no submissions")
 
 
+def cmd_usage(args: argparse.Namespace) -> None:
+    from judgebench import usage
+
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        print(usage.render(*usage.report(s, event.id)))
+
+
 def cmd_doctor(_: argparse.Namespace) -> None:
     from judgebench.cli import doctor
 
@@ -150,10 +158,16 @@ def main(argv: list[str] | None = None) -> None:
     # httpx logs full request URLs at INFO; Telegram URLs contain the bot token.
     for noisy in ("httpx", "httpcore", "alembic", "google_adk"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    from judgebench import tracing
+
+    tracing.setup("cli")
     parser = argparse.ArgumentParser(prog=settings().app_name)
     sub = parser.add_subparsers(required=True)
     sub.add_parser("auth-google").set_defaults(fn=cmd_auth_google)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
+    p = sub.add_parser("usage")
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_usage)
     p = sub.add_parser("setup")
     p.add_argument("config")
     p.set_defaults(fn=cmd_setup)

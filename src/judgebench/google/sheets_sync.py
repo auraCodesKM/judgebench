@@ -231,6 +231,15 @@ def _by_key(rows: list[list[Any]], header: list[str]) -> dict[str, list[Any]]:
 
 
 def sync_workbook(session: Session, event: Event, read: Reader, write: Writer) -> SyncReport:
+    from judgebench import tracing
+
+    with tracing.span("sheets.publish", event_id=event.id) as s:
+        report = _sync(session, event, read, write)
+        s.set_attributes({"jb.tabs_written": len(report.written_tabs), "jb.overrides": report.overrides})
+        return report
+
+
+def _sync(session: Session, event: Event, read: Reader, write: Writer) -> SyncReport:
     from judgebench.google.workspace import TABS
 
     integ = session.scalars(

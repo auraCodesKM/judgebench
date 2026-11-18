@@ -14,6 +14,7 @@ from pathlib import Path
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from judgebench import tracing
 from judgebench.adapters.profiler import RepositoryProfile, profile_repository
 from judgebench.db.models import RepositoryProfileRow, Submission, SubmissionArtefact
 from judgebench.states import State
@@ -51,7 +52,8 @@ def _profile(session: Session, github: GitHub, sid: uuid.UUID, scratch: Path | N
         limitations = list(result.limitations)
         if tarball.truncated:
             limitations.insert(0, "repository tarball exceeded download cap; truncated")
-        profile = profile_repository(Path(tmp) / "src", commit_sha=sha, limitations=limitations)
+        with tracing.span("repository.profile", commit=sha[:7], files=result.files_written):
+            profile = profile_repository(Path(tmp) / "src", commit_sha=sha, limitations=limitations)
 
     scope = {"tenant_id": sub.tenant_id, "event_id": sub.event_id, "submission_id": sid}
     session.add(

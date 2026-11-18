@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
+from judgebench import tracing
 from judgebench.api.ingest import sync_event
 from judgebench.config import settings
 from judgebench.db.models import Event
@@ -18,6 +19,7 @@ from judgebench.google.sheets_sync import sync_workbook
 from judgebench.pubsub import no_publisher, rest_publisher
 
 app = FastAPI(title="api", docs_url=None, redoc_url=None)
+tracing.setup("api")
 
 
 def _event(s: Session, event_id: uuid.UUID) -> Event:

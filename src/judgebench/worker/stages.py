@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from judgebench import tracing
 from judgebench.adapters.base import ADAPTER_VERSION, Snapshot
 from judgebench.adapters.inspectors import inspect_repository
 from judgebench.adapters.profiler import RepositoryProfile
@@ -109,9 +110,11 @@ def checkout(deps: Deps, sub: Submission) -> Iterator[Path]:
     ref = _ref(sub)
     assert sub.commit_sha
     with tempfile.TemporaryDirectory(dir=deps.scratch, prefix="sub-") as tmp:
-        tarball = deps.github.download_tarball(ref, sub.commit_sha, Path(tmp) / "repo.tar.gz")
-        with tarball.path.open("rb") as f:
-            extract_tarball(f, Path(tmp) / "src")
+        with tracing.span("repository.fetch", commit=sub.commit_sha[:7]):
+            tarball = deps.github.download_tarball(ref, sub.commit_sha, Path(tmp) / "repo.tar.gz")
+        with tracing.span("artefact.extract"), tarball.path.open("rb") as f:
+            result = extract_tarball(f, Path(tmp) / "src")
+            tracing.annotate(files=result.files_written)
         yield Path(tmp) / "src"
 
 
@@ -327,11 +330,19 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     meter = Meter(already_used=_used_tokens(session, sid))
     with checkout(deps, sub) as root:
         snap = Snapshot(root, profile, CodeIndex(root))
-        findings = inspect_repository(snap)
-        ci_f, ci_status, ci_details = ci_findings(deps.ci_reader(deps.github), ref, sub.commit_sha or "", root)
+        with tracing.span("evidence.collect"):
+            findings = inspect_repository(snap)
+            tracing.annotate(findings=len(findings))
+        with tracing.span("behaviour.ci"):
+            ci_f, ci_status, ci_details = ci_findings(deps.ci_reader(deps.github), ref, sub.commit_sha or "", root)
+            tracing.annotate(status=ci_status.value)
         readme = (root / profile.readme).read_text(errors="replace") if profile.readme else ""
         pieces = chunk_repository(root)
-    live_f, live_status, live_details = live_check_findings(deps.probe, sub.deployed_url, answers.get("sample_request"))
+    with tracing.span("behaviour.live_check"):
+        live_f, live_status, live_details = live_check_findings(
+            deps.probe, sub.deployed_url, answers.get("sample_request")
+        )
+        tracing.annotate(status=live_status.value)
 
     form_text = "\n".join(
         f"{k}: {answers.get(k, '')}"
@@ -397,7 +408,8 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         Piece("evidence", f"evidence:{e.id}", f"{e.key} [{e.status}] {e.source_locator}: {e.observation}")
         for e in session.scalars(select(Evidence).where(Evidence.stage_attempt == attempt))
     ]
-    index_pieces(session, sub, pieces + evidence_pieces, deps.embedder)  # for the Judge Copilot (§11.3)
+    with tracing.span("retrieval.index", model=deps.embedder.model):  # for the Judge Copilot (§11.3)
+        tracing.annotate(chunks=index_pieces(session, sub, pieces + evidence_pieces, deps.embedder))
     ci_suffix = ", marked NOT_VERIFIABLE, score not reduced" if ci_status == CheckStatus.NOT_VERIFIABLE else ""
     _notify(session, sub, "CI", f"CI: {ci_details['summary']}{ci_suffix}")
     _notify(session, sub, "LIVE_CHECK", f"Live check: {live_details['summary']}")
@@ -652,6 +664,15 @@ STAGES: list[tuple[State, Callable[[Session, uuid.UUID, Deps], None]]] = [
 ]
 
 
+STAGE_SPANS = {
+    State.RECEIVED: "submission.profile",
+    State.PROFILED: "submission.collect_evidence",
+    State.COLLECTING_EVIDENCE: "submission.collect_evidence",
+    State.EVALUATING: "submission.evaluate",
+    State.CRITIQUING: "submission.critique",
+}
+
+
 def run_next(sessions: sessionmaker[Session], deps: Deps) -> uuid.UUID | None:
     """Advance at most one submission by one stage. Returns its ID, or None if nothing to do."""
     for state, work in STAGES:
@@ -661,9 +682,22 @@ def run_next(sessions: sessionmaker[Session], deps: Deps) -> uuid.UUID | None:
             sid = claim_next(session, state)
             if sid is None:
                 continue
+            sub = session.get_one(Submission, sid)
+            parent = sub.source_hashes.get("trace")
             try:
-                work(session, sid, deps)
-                session.commit()
+                with tracing.span(
+                    STAGE_SPANS[state],
+                    parent=parent,
+                    submission_id=sid,
+                    event_id=sub.event_id,
+                    tenant_id=sub.tenant_id,
+                    stage=state.value,
+                    attempt=sub.attempts,
+                ) as stage_span:
+                    work(session, sid, deps)
+                    with tracing.span("evaluation.persist"):
+                        session.commit()
+                    stage_span.set_attribute("jb.status", "ok")
             except BudgetExceeded as exc:
                 session.rollback()
                 current = session.get_one(Submission, sid).state

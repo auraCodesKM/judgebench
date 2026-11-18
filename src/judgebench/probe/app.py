@@ -9,10 +9,12 @@ import hashlib
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from judgebench import tracing
 from judgebench.config import settings
 from judgebench.probe.guard import Blocked, GuardedClient
 
 app = FastAPI(title="probe", docs_url=None, redoc_url=None)
+tracing.setup("probe")
 
 MAX_EXCERPT = 4096
 

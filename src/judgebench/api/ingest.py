@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from judgebench import tracing
 from judgebench.db.models import AuditEvent, Event, EventIntegration, Notification, Submission, Team
 from judgebench.states import State
 from judgebench.worker.github import parse_repo_url
@@ -70,6 +71,14 @@ def ingest_responses(
         team = _team(session, event, (a.get("team_name") or "Unnamed team")[:200])
         version = (session.scalar(select(func.max(Submission.version)).where(Submission.team_id == team.id)) or 0) + 1
         sub_id = uuid.uuid4()
+        with tracing.span(
+            "submission.received",
+            submission_id=sub_id,
+            event_id=event.id,
+            tenant_id=event.tenant_id,
+            team_version=version,
+        ):
+            trace_ctx = tracing.carrier()
         inserted = session.execute(
             insert(Submission)
             .values(
@@ -87,6 +96,7 @@ def ingest_responses(
                 claimed_categories=a.get("categories", []),
                 form_answers=a,
                 state=State.RECEIVED,
+                source_hashes={"trace": trace_ctx},
             )
             .on_conflict_do_nothing(index_elements=["event_id", "form_response_id"])
             .returning(Submission.id)
@@ -136,7 +146,8 @@ def sync_event(session: Session, event: Event, fetch: Any) -> list[uuid.UUID]:
     """One poll. `fetch(form_id, since) -> raw responses` (workspace.list_responses bound to a session)."""
     integ = forms_integration(session, event)
     since = integ.cursor.get("since")
-    raw = fetch(integ.external_ids["form_id"], since)
+    with tracing.span("event.ingestion", event_id=event.id, tenant_id=event.tenant_id):
+        raw = fetch(integ.external_ids["form_id"], since)
     created = ingest_responses(session, event, raw, integ.external_ids["questions"])
     stamps = [r.get("lastSubmittedTime") or r["createTime"] for r in raw]
     if stamps:

@@ -14,12 +14,14 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 
+from judgebench import tracing
 from judgebench.config import settings
 from judgebench.db.session import sessions
 from judgebench.telegram.copilot import Copilot
 from judgebench.telegram.notify import TelegramBot, drain
 
 app = FastAPI(title="telegram", docs_url=None, redoc_url=None)
+tracing.setup("telegram")
 
 
 @cache

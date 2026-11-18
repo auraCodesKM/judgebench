@@ -10,11 +10,13 @@ from typing import Any
 
 from fastapi import FastAPI, Response
 
+from judgebench import tracing
 from judgebench.db.session import sessions
 from judgebench.pubsub import parse_push
 from judgebench.worker.stages import Deps, run_next
 
 app = FastAPI(title="worker", docs_url=None, redoc_url=None)
+tracing.setup("worker")
 log = logging.getLogger(__name__)
 MAX_STEPS = 12  # one submission end to end is 5 stages; keep each call well inside the push deadline
 

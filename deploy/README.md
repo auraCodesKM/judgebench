@@ -65,3 +65,22 @@ gcloud run services add-iam-policy-binding jb-probe --region=asia-south1 --role=
 
 Scheduler still calls `jb-worker /internal/work` every few minutes as the safety sweep, for lost
 messages and retries.
+
+## M3 additions: tracing, Copilot
+
+```bash
+# Every runtime SA writes spans to Cloud Trace (set OTEL_TRACES_EXPORTER=gcp on each service).
+for sa in jb-api jb-worker jb-telegram; do
+  gcloud projects add-iam-policy-binding $P --role=roles/cloudtrace.agent \
+    --member=serviceAccount:$sa@$P.iam.gserviceaccount.com
+done
+# The Copilot answers with Gemini and embeds queries: Vertex for jb-telegram too.
+gcloud projects add-iam-policy-binding $P --role=roles/aiplatform.user \
+  --member=serviceAccount:jb-telegram@$P.iam.gserviceaccount.com
+# Webhook: Telegram must send our secret header. The telegram service must allow unauthenticated
+# invocations (Telegram can't send Google ID tokens), so the secret header IS the auth.
+SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+printf %s "$SECRET" | gcloud secrets create telegram-webhook-secret --data-file=-
+curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -d url="$TELEGRAM_URL/integrations/telegram/webhook" -d secret_token="$SECRET" -d allowed_updates='["message"]'
+```

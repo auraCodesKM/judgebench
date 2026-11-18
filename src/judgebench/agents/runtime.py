@@ -30,6 +30,7 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
+from judgebench import tracing
 from judgebench.config import settings
 from judgebench.errors import StageError
 
@@ -109,6 +110,11 @@ class Meter:
     def after_model(self, ctx: CallbackContext, response: LlmResponse, model: str) -> None:
         u = response.usage_metadata
         started = self._started.pop(ctx.agent_name, time.monotonic())
+        tracing.annotate(
+            agent=ctx.agent_name,
+            model=model,
+            tokens=((u.prompt_token_count or 0) + (u.candidates_token_count or 0)) if u else 0,
+        )
         self.calls.append(
             Call(
                 ctx.agent_name,
@@ -174,7 +180,8 @@ def run(root: BaseAgent, state: dict[str, Any]) -> dict[str, Any]:
         final = await sessions.get_session(app_name=app, user_id="worker", session_id=s.id)
         return dict(final.state) if final else {}
 
-    return asyncio.run(go())
+    with tracing.span(f"agent.{root.name}", agent=root.name):
+        return asyncio.run(go())
 
 
 def parse_json(text: Any) -> Any:

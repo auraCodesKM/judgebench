@@ -203,3 +203,17 @@ def test_budget_exceeded_goes_to_human_review(
     session.refresh(sub)
     assert sub.state == State.REQUIRES_HUMAN
     assert any("Token budget reached" in x for x in lines(session, sub))
+
+
+def test_usage_report_per_submission_and_agent(session_factory: sessionmaker[Session], session: Session) -> None:
+    from judgebench import usage
+
+    sub = submit(session, "Team Alpha")
+    drive(session_factory, deps(repos.ALPHA_RAG, fake()))
+    per_sub, per_agent = usage.report(session, sub.event_id)
+    [alpha] = per_sub
+    assert alpha.calls >= 6 and alpha.prompt_tokens > 0 and alpha.end_to_end_s is not None
+    assert {"claim_investigator", "rubric_evaluator", "critic"} <= {a.label for a in per_agent}
+    assert next(a for a in per_agent if a.label == "claim_investigator").calls == 2
+    text = usage.render(per_sub, per_agent)
+    assert "Team Alpha v1" in text and "p95 ms" in text

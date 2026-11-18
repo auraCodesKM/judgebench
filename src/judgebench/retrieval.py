@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from judgebench import tracing
 from judgebench.adapters.profiler import SKIP_DIRS
 from judgebench.db.models import EMBED_DIM, Chunk, Submission
 
@@ -185,6 +186,18 @@ def hybrid_search(
     *,
     submission_id: uuid.UUID | None = None,
     k: int = 8,
+) -> list[Hit]:
+    with tracing.span("retrieval.query", submission_id=submission_id, hits=k):
+        return _hybrid(session, event_ids, query, embedder, submission_id, k)
+
+
+def _hybrid(
+    session: Session,
+    event_ids: Iterable[uuid.UUID],
+    query: str,
+    embedder: Embedder,
+    submission_id: uuid.UUID | None,
+    k: int,
 ) -> list[Hit]:
     events = [str(e) for e in event_ids]
     if not events or not query.strip():
