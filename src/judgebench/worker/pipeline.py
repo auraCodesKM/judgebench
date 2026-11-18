@@ -40,7 +40,7 @@ def _profile(session: Session, github: GitHub, sid: uuid.UUID, scratch: Path | N
     if ref is None:
         raise RepoError("invalid_repo_url", False)
     if sub.commit_sha is None:
-        sub.commit_sha = github.resolve_commit(ref)
+        sub.commit_sha = github.resolve_commit(ref, until=sub.submitted_at)
         session.commit()  # pin before fetching; retries reuse it
     sha = sub.commit_sha
 

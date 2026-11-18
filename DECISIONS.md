@@ -30,7 +30,7 @@ One line per significant choice, and why. Newest last.
 - **The form is published via the Forms API `setPublishSettings`; if that fails, setup tells the operator to click Publish.** API-created forms start unpublished.
 
 ## Repository fetch and extraction
-- **The worker resolves the commit SHA on first attempt and commits it before downloading; retries reuse it.** The API doesn't need a GitHub token. Trade-off: a push in the seconds between submit and first processing is included.
+- **Commit pinning: the worker resolves the latest commit at or before the Form submission timestamp (`GET /commits?until=<submitted_at>&per_page=1`, on the submitted branch if the URL names one), then commits the SHA before downloading; retries reuse it.** This closes the push-in-the-gap problem, and the API still needs no GitHub token. Ceiling: `until` filters on commit date, which a committer can backdate. Upgrade: cross-check push time via the repo's Events API if a dispute ever needs it.
 - **GitHub tarball fetch goes worker → api.github.com/codeload.github.com directly, not via the probe.** The participant controls only a regex-validated owner/repo, not the URL. This keeps the GitHub token out of the probe. Redirects are allowed only to codeload.
 - **No `git clone`.** Tarball of a pinned commit only: no hooks, submodules or LFS (§14.1).
 - **Every symlink and hard link is skipped rather than resolved.** Code reading never needs them, and skipping is strictly safer than "links inside the workspace are fine".

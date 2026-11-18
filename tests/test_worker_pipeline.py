@@ -1,5 +1,6 @@
 """Worker RECEIVED -> PROFILED: pinned fetch, retries, resume, no duplicate work."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -28,10 +29,12 @@ class FakeGitHub(GitHub):
     def __init__(self, failures: list[RepoError | Exception] | None = None) -> None:
         self.failures = failures or []
         self.resolves = 0
+        self.untils: list[datetime] = []
         self.downloads: list[str] = []
 
-    def resolve_commit(self, ref: RepoRef) -> str:
+    def resolve_commit(self, ref: RepoRef, until: datetime) -> str:
         self.resolves += 1
+        self.untils.append(until)
         return SHA
 
     def download_tarball(self, ref: RepoRef, sha: str, dest: Path) -> Tarball:
@@ -105,3 +108,42 @@ def test_missing_repo_fails_without_retry(
     session.refresh(sub)
     assert sub.state == State.FAILED and sub.retryable is False
     assert run_profile_stage(session_factory, FakeGitHub()) is None
+
+
+def test_commit_pinned_to_latest_at_or_before_submission_time(
+    session_factory: sessionmaker[Session], session: Session, sub: m.Submission
+) -> None:
+    gh = FakeGitHub()
+    run_profile_stage(session_factory, gh)
+    assert gh.untils == [sub.submitted_at]
+
+
+def test_resolve_commit_queries_until_submission_timestamp() -> None:
+    import httpx
+
+    from judgebench.worker.github import GitHub, RepoRef
+
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json=[{"sha": SHA}])
+
+    gh = GitHub("tok", httpx.Client(transport=httpx.MockTransport(handler)))
+    submitted = datetime.fromisoformat("2026-11-22T10:15:30.250+05:30")
+    assert gh.resolve_commit(RepoRef("acme", "demo", "main"), until=submitted) == SHA
+    [req] = seen
+    assert req.url.path == "/repos/acme/demo/commits"
+    assert dict(req.url.params) == {"until": "2026-11-22T04:45:30Z", "per_page": "1", "sha": "main"}
+    assert req.headers["authorization"] == "Bearer tok"
+
+
+def test_no_commit_before_submission_is_not_retryable() -> None:
+    import httpx
+
+    from judgebench.worker.github import GitHub, RepoRef
+
+    gh = GitHub(None, httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[]))))
+    with pytest.raises(RepoError) as exc:
+        gh.resolve_commit(RepoRef("acme", "demo"), until=datetime.fromisoformat("2026-11-22T10:00:00+00:00"))
+    assert exc.value.category == "no_commit_before_submission" and not exc.value.retryable

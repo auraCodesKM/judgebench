@@ -9,6 +9,7 @@ only to codeload.github.com.
 import hashlib
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -59,11 +60,12 @@ class GitHub:
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        self._http = client or httpx.Client(headers=headers, timeout=30, follow_redirects=False)
+        self._http = client or httpx.Client(timeout=30, follow_redirects=False)
+        self._http.headers.update(headers)
 
-    def _get(self, url: str) -> httpx.Response:
+    def _get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
         try:
-            resp = self._http.get(url)
+            resp = self._http.get(url, params=params)
         except httpx.TransportError as exc:
             raise RepoError("github_unavailable", True, type(exc).__name__) from exc
         if resp.status_code == 404:
@@ -72,12 +74,22 @@ class GitHub:
             raise RepoError("github_unavailable", True, f"HTTP {resp.status_code}")
         return resp
 
-    def resolve_commit(self, ref: RepoRef) -> str:
-        resp = self._get(f"{API}/repos/{ref.owner}/{ref.repo}/commits/{ref.ref or 'HEAD'}")
+    def resolve_commit(self, ref: RepoRef, until: datetime) -> str:
+        """Latest commit on the submitted ref (default branch if none) at or before `until`,
+        the Form submission time. Pushes after submitting are therefore never evaluated."""
+        params = {"until": until.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": "1"}
+        if ref.ref:
+            params["sha"] = ref.ref
+        resp = self._get(f"{API}/repos/{ref.owner}/{ref.repo}/commits", params)
+        if resp.status_code == 409:
+            raise RepoError("repo_empty", False, "repository has no commits")
         if resp.status_code != 200:
             raise RepoError("repo_not_found", False, f"HTTP {resp.status_code}")
-        sha = resp.json().get("sha", "")
-        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        commits = resp.json()
+        if not isinstance(commits, list) or not commits:
+            raise RepoError("no_commit_before_submission", False, f"no commit at or before {params['until']}")
+        sha = commits[0].get("sha", "") if isinstance(commits[0], dict) else ""
+        if not re.fullmatch(r"[0-9a-f]{40}", str(sha)):
             raise RepoError("repo_not_found", False, "no commit sha")
         return str(sha)
 
