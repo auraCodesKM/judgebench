@@ -615,7 +615,7 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         r.score, r.flagged = s.score, s.flagged
         r.critic_note = "; ".join(s.notes) or None
     total = round(sum(s.score for s in scores), 1)
-    confidence = overall_confidence(scores, evidence, list(evaluation.flags))
+    confidence = overall_confidence(scores, list(evaluation.flags))
     questions = list(evaluation.suggested_questions) or [s.question for s in scores if s.question][:3]
     evaluation.total_score, evaluation.confidence, evaluation.status = total, confidence, "ready"
     evaluation.suggested_questions = questions

@@ -117,11 +117,15 @@ def apply_critique(scores: list[Score], raw: Any) -> list[str]:
     return messages
 
 
-def overall_confidence(scores: list[Score], evidence: list[EvidenceView], flags: list[str]) -> str:
-    behavioural = any(e.behavioural and e.status == "VERIFIED" for e in evidence)
+def overall_confidence(scores: list[Score], flags: list[str]) -> str:
+    """Derived from the criteria: the max-weighted mean of criterion confidence (>=0.7 high, >=0.4
+    medium, else low). Flagged scores and evaluation flags can only lower it (any: at most medium; 3+: low)."""
+    weight = sum(s.max for s in scores) or 1.0
+    mean = sum(s.confidence * s.max for s in scores) / weight
+    level = 2 if mean >= 0.7 else 1 if mean >= 0.4 else 0
     flagged = sum(s.flagged for s in scores) + len(flags)
-    if behavioural and flagged <= 1:
-        return "high"
-    if flagged >= 3 or not any(e.status in SUPPORTING for e in evidence):
-        return "low"
-    return "medium"
+    if flagged >= 3:
+        level = 0
+    elif flagged:
+        level = min(level, 1)
+    return ("low", "medium", "high")[level]
