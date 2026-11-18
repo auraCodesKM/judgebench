@@ -1,18 +1,29 @@
-"""Worker service: reads participant repos. No Google token, no Telegram token (§14.1).
-
-M1: Cloud Scheduler calls /internal/work. Pub/Sub push replaces the trigger in M2;
-the handler stays the same because state lives in Postgres, not in the message.
+"""Worker service: reads participant repos, runs agents. Holds the GitHub token; no Google
+Workspace token, no Telegram token (§14.1). Triggers:
+  /internal/pubsub  Pub/Sub push (wake-up per new submission; dead-letter topic after 5 failures)
+  /internal/work    Cloud Scheduler sweep: catches anything a lost message missed, plus retries
+Both just advance whatever work is claimable: state is in Postgres, not in the message.
 """
 
-from fastapi import FastAPI
+import logging
+from typing import Any
 
-from judgebench.config import settings
+from fastapi import FastAPI, Response
+
 from judgebench.db.session import sessions
-from judgebench.worker.github import GitHub
-from judgebench.worker.pipeline import run_profile_stage
+from judgebench.pubsub import parse_push
+from judgebench.worker.stages import Deps, run_next
 
 app = FastAPI(title="worker", docs_url=None, redoc_url=None)
-MAX_PER_CALL = 5
+log = logging.getLogger(__name__)
+MAX_STEPS = 12  # one submission end to end is 5 stages; keep each call well inside the push deadline
+
+
+def advance(limit: int = MAX_STEPS) -> int:
+    deps, done = Deps.from_settings(), 0
+    while done < limit and run_next(sessions(), deps) is not None:
+        done += 1
+    return done
 
 
 @app.get("/healthz")
@@ -22,8 +33,15 @@ def healthz() -> dict[str, str]:
 
 @app.post("/internal/work")
 def work() -> dict[str, int]:
-    github = GitHub(settings().github_token)
-    done = 0
-    while done < MAX_PER_CALL and run_profile_stage(sessions(), github) is not None:
-        done += 1
-    return {"processed": done}
+    return {"steps": advance()}
+
+
+@app.post("/internal/pubsub", status_code=204)
+def pubsub_push(envelope: dict[str, Any]) -> Response:
+    sid = parse_push(envelope)
+    if sid is None:  # malformed: ack (204) so it isn't redelivered forever
+        log.warning("dropping malformed Pub/Sub message")
+        return Response(status_code=204)
+    log.info("wake-up for submission %s", sid)
+    advance()  # infra errors (DB down) raise -> 500 -> Pub/Sub retries, then dead-letters
+    return Response(status_code=204)

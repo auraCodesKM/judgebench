@@ -15,6 +15,7 @@ from judgebench.db.models import Event
 from judgebench.db.session import sessions
 from judgebench.google import workspace
 from judgebench.google.projection import publish_leaderboard
+from judgebench.pubsub import no_publisher, rest_publisher
 
 app = FastAPI(title="api", docs_url=None, redoc_url=None)
 
@@ -36,6 +37,8 @@ def sync(event_id: uuid.UUID) -> dict[str, int]:
     g = workspace.session(Path(settings().google_token_file))
     with sessions()() as s:
         new = sync_event(s, _event(s, event_id), lambda fid, since: workspace.list_responses(g, fid, since))
+    topic = settings().pubsub_topic
+    (rest_publisher(topic) if topic else no_publisher)(new)  # after commit; failures only delay work
     return {"new_submissions": len(new)}
 
 
