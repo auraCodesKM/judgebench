@@ -739,9 +739,18 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                 record_failure(session, sid, exc.category, retryable=exc.retryable, detail=str(exc))
                 session.commit()
             except Exception as exc:
-                log.exception("stage %s crashed for %s", state, sid)
                 session.rollback()
-                record_failure(session, sid, "internal_error", retryable=True, detail=type(exc).__name__)
+                if getattr(exc, "code", None) == 429:  # model quota (e.g. the free tier's requests per day)
+                    quota = re.search(r"'quotaId': '([^']+)'", str(exc))
+                    delay = re.search(r"'retryDelay': '([^']+)'", str(exc))
+                    detail = (
+                        f"{quota.group(1) if quota else 'rate limit'}; retry after {delay.group(1) if delay else '?'}"
+                    )
+                    log.warning("model quota exhausted for %s: %s", sid, detail)
+                    record_failure(session, sid, "model_quota_exhausted", retryable=True, detail=detail)
+                else:
+                    log.exception("stage %s crashed for %s", state, sid)
+                    record_failure(session, sid, "internal_error", retryable=True, detail=type(exc).__name__)
                 session.commit()
             return sid
     return None

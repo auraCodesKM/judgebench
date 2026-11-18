@@ -91,3 +91,32 @@ def test_allowed_repo_is_labelled_free_tier(
     [row] = build_tabs(session, sub.event_id)["Leaderboard"].values()
     assert "Gemini API free tier: gemini-2.5-flash" in row
     assert all(u.cost_usd == 0 for u in session.query(m.UsageRecord).filter_by(submission_id=sub.id))
+
+
+@pytest.mark.db
+def test_quota_exhaustion_is_named(session_factory: sessionmaker[Session], session: Session) -> None:
+    from google.genai.errors import ClientError
+
+    from tests.fake_llm import Seen
+
+    def exhausted(s: Seen) -> Any:
+        raise ClientError(
+            429,
+            {
+                "error": {
+                    "code": 429,
+                    "message": "quota",
+                    "status": "RESOURCE_EXHAUSTED",
+                    "details": [
+                        {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"},
+                        {"retryDelay": "79654s"},
+                    ],
+                }
+            },
+        )
+
+    sub = submit(session, "Team Q")
+    drive(session_factory, deps(repos.ALPHA_RAG, fake(claim_analyst=exhausted)))
+    session.refresh(sub)
+    assert sub.error_category == "model_quota_exhausted"
+    assert sub.error_detail == "GenerateRequestsPerDayPerProjectPerModel-FreeTier; retry after 79654s"
