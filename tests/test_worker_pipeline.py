@@ -86,7 +86,7 @@ def test_transient_error_retries_then_succeeds_with_same_commit(
 
     run_profile_stage(session_factory, gh)
     session.refresh(sub)
-    assert sub.state == State.PROFILED and sub.attempts == 2
+    assert sub.state == State.PROFILED and sub.attempts == 0  # reset for the next stage
     assert gh.resolves == 1  # commit pinned on the first attempt, reused on retry
     assert gh.downloads == [SHA, SHA]
 

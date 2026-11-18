@@ -49,10 +49,13 @@ def transition(
     expected: State,
     target: State,
     *,
-    message: str,
+    message: str | None,
     actor: str = "system:worker",
     detail: dict[str, Any] | None = None,
+    keep_lease: bool = False,
 ) -> None:
+    """Compare-and-set state change + audit row + (if message) Telegram outbox row, one transaction.
+    keep_lease=True when the same worker continues straight into the next stage's work."""
     row = session.execute(
         select(Submission.tenant_id, Submission.event_id, Submission.last_successful_state).where(
             Submission.id == submission_id
@@ -61,9 +64,17 @@ def transition(
     if not can_transition(expected, target, last_successful=row.last_successful_state):
         raise IllegalTransition(f"{expected} -> {target}")
 
-    values: dict[str, Any] = {"state": target, "lease_until": None}
-    if target in PIPELINE:
-        values |= {"last_successful_state": target, "error_category": None, "error_detail": None, "retryable": None}
+    values: dict[str, Any] = {"state": target}
+    if not keep_lease:
+        values["lease_until"] = None
+    if target in PIPELINE:  # stage done: clear errors, give the next stage a fresh attempt budget
+        values |= {
+            "last_successful_state": target,
+            "error_category": None,
+            "error_detail": None,
+            "retryable": None,
+            "attempts": 0,
+        }
     result = session.execute(
         update(Submission).where(Submission.id == submission_id, Submission.state == expected).values(**values)
     )
@@ -74,7 +85,8 @@ def transition(
     session.add(
         AuditEvent(**scope, actor=actor, action=f"state:{target}", target=f"{expected}->{target}", detail=detail or {})
     )
-    session.add(Notification(**scope, stage=target.value, text=message))
+    if message:
+        session.add(Notification(**scope, stage=target.value, text=message))
 
 
 def claim_next(
