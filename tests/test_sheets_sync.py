@@ -140,3 +140,16 @@ def test_audit_log_detail_is_readable() -> None:
     assert audit_text(a("state:READY_FOR_REVIEW", "CRITIQUING->READY_FOR_REVIEW", total=57.0, confidence="low")) == (
         "CRITIQUING -> READY_FOR_REVIEW: total 57, confidence low"
     )
+
+
+@pytest.mark.db
+def test_evaluations_tab_shows_post_critic_score(session_factory: sessionmaker[Session], session: Session) -> None:
+    from judgebench.google.sheets_sync import build_tabs
+    from tests import fixtures_repos as repos
+    from tests.fake_llm import fake
+    from tests.test_m2_flow import deps, drive, submit
+
+    sub = submit(session, "Team Alpha")
+    drive(session_factory, deps(repos.ALPHA_RAG, fake()))
+    row = build_tabs(session, sub.event_id)["Evaluations"][f"crit:{sub.id}:model_quality"]
+    assert (row[2], row[7]) == (9, 16)  # Score = after the critic; "Score before critic" = evaluator's 16
