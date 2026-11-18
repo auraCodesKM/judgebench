@@ -49,8 +49,22 @@ def test_green_ci_with_real_tests_is_behavioural(tmp_path: Path) -> None:
     findings, status, details = ci_findings(reader, REF, SHA, write(tmp_path, repos.ALPHA_RAG))
     [f] = findings
     assert status == CheckStatus.VERIFIED and f.behavioural and f.status == EvidenceStatus.VERIFIED
-    assert f.observation == 'GitHub Actions "test" passed on 3f2c1ab (pytest, 14 tests)'
-    assert details["summary"] == '"test" passed on 3f2c1ab (pytest, 14 tests)'
+    assert f.observation == 'GitHub Actions "test" passed on 3f2c1ab (pytest, 14 tests); 2 test functions in code'
+    assert details["summary"] == '"test" passed on 3f2c1ab (pytest, 14 tests); 2 test functions in code'
+
+
+def test_green_tests_without_test_code_are_only_partially_verified(tmp_path: Path) -> None:
+    """§7.5: a behavioural source alone is PARTIALLY_VERIFIED; VERIFIED also needs code evidence."""
+    reader = FakeReader(
+        [{"id": 7, "name": "test", "path": ".github/workflows/test.yml", "conclusion": "success"}],
+        [{"id": 70, "name": "test", "conclusion": "success"}],
+        ("pytest", 14),
+    )
+    files = {k: v for k, v in repos.ALPHA_RAG.items() if not k.startswith("tests/")}
+    [f], status, _ = ci_findings(reader, REF, SHA, write(tmp_path, files))
+    assert status == CheckStatus.PARTIALLY_VERIFIED
+    assert f.key == "ci.tests_passed" and f.behavioural and f.status == EvidenceStatus.OBSERVED
+    assert f.observation.endswith("; no test functions found in code")
 
 
 def test_green_ci_that_runs_no_tests_is_flagged(tmp_path: Path) -> None:
@@ -121,4 +135,4 @@ def test_only_latest_code_triggered_run_per_workflow_counts(tmp_path: Path) -> N
     findings, status, details = ci_findings(reader, REF, SHA, write(tmp_path, repos.ALPHA_RAG))
     assert status == CheckStatus.VERIFIED
     assert [f.key for f in findings] == ["ci.tests_passed"]
-    assert details["summary"] == '"test" passed on 3f2c1ab (pytest, 14 tests)'
+    assert details["summary"] == '"test" passed on 3f2c1ab (pytest, 14 tests); 2 test functions in code'

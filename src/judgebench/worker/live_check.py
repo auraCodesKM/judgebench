@@ -9,6 +9,7 @@ never by an LLM, and must target the same host as the deployed URL.
 import json
 import shlex
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
 
@@ -125,9 +126,28 @@ def _path(url: str) -> str:
     return (p.path or "/") + (f"?{p.query}" if p.query else "")
 
 
+_CODE_SUFFIXES = {".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".rb", ".php"}
+
+
+def route_in_code(root: Path | None, path: str) -> bool:
+    """Code evidence for a live route: its path appears as a string literal in source (text only)."""
+    if root is None or path in ("", "/"):
+        return False
+    needles = (f'"{path}"', f"'{path}'", f"`{path}`")
+    for f in root.rglob("*"):
+        if f.suffix in _CODE_SUFFIXES and f.is_file() and not f.is_symlink() and f.stat().st_size < 1_000_000:
+            text = f.read_text(errors="replace")
+            if any(n in text for n in needles):
+                return True
+    return False
+
+
 def live_check_findings(
-    probe: ProbeClient, deployed_url: str | None, sample_text: str | None
+    probe: ProbeClient, deployed_url: str | None, sample_text: str | None, root: Path | None = None
 ) -> tuple[list[Finding], CheckStatus, dict[str, Any]]:
+    """§7.5: a passing sample query is VERIFIED only if its route is also found in the code (`root`);
+    otherwise PARTIALLY_VERIFIED (behaviour without matching code evidence)."""
+
     def finding(
         key: str,
         obs: str,
@@ -178,22 +198,25 @@ def live_check_findings(
         body = (out.get("body_excerpt") or "").lower()
         missing = [e for e in sample.expect if e.lower() not in body] if i else []
         ok = 200 <= code < 400 and not missing
+        in_code = bool(i) and route_in_code(root, urlsplit(req["url"]).path)
         obs = f"{loc[5:]} -> {code} in {ms} ms ({out.get('content_type') or 'no content type'})"
         if missing:
             obs += f"; expected text not in response: {', '.join(missing)}"
+        elif ok and i:
+            obs += "; route found in code" if in_code else "; route not found in code"
         findings.append(
             finding(
                 "live.sample_query" if i else "live.health",
                 obs,
                 EvidenceStatus.VERIFIED
-                if (ok and i)
+                if (ok and in_code)
                 else (EvidenceStatus.OBSERVED if ok else EvidenceStatus.CONTRADICTED),
                 loc,
                 behavioural=ok and i > 0,
                 limitations=["response body truncated"] if out.get("truncated") else [],
             )
         )
-        if ok and i:
+        if ok and in_code:
             status = CheckStatus.VERIFIED
         elif ok and status is CheckStatus.NOT_VERIFIABLE:
             status = CheckStatus.PARTIALLY_VERIFIED

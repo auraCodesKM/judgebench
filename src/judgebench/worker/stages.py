@@ -335,15 +335,17 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
             findings = inspect_repository(snap)
             tracing.annotate(findings=len(findings))
         with tracing.span("behaviour.ci"):
-            ci_f, ci_status, ci_details = ci_findings(deps.ci_reader(deps.github), ref, sub.commit_sha or "", root)
+            ci_f, ci_status, ci_details = ci_findings(
+                deps.ci_reader(deps.github), ref, sub.commit_sha or "", root, snap.index.test_functions
+            )
             tracing.annotate(status=ci_status.value)
         readme = (root / profile.readme).read_text(errors="replace") if profile.readme else ""
         pieces = chunk_repository(root)
-    with tracing.span("behaviour.live_check"):
-        live_f, live_status, live_details = live_check_findings(
-            deps.probe, sub.deployed_url, answers.get("sample_request")
-        )
-        tracing.annotate(status=live_status.value)
+        with tracing.span("behaviour.live_check"):  # inside the checkout: route paths are matched to code
+            live_f, live_status, live_details = live_check_findings(
+                deps.probe, sub.deployed_url, answers.get("sample_request"), root
+            )
+            tracing.annotate(status=live_status.value)
 
     form_text = "\n".join(
         f"{k}: {answers.get(k, '')}"

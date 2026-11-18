@@ -142,7 +142,7 @@ def test_honest_rag_team_end_to_end(session_factory: sessionmaker[Session], sess
 
     out = lines(session, sub)
     assert out[0].startswith("Profiled (commit 3f2c1ab)")
-    assert 'CI: "test" passed on 3f2c1ab (pytest, 14 tests)' in out
+    assert 'CI: "test" passed on 3f2c1ab (pytest, 14 tests); 2 test functions in code' in out
     assert "Live check: / 200 in 180 ms; sample query 200 in 2.1 s" in out
     assert any(x.startswith("Demo check: claim") for x in out)
     assert any(x.startswith("Claims: ") and "extracted" in x for x in out)

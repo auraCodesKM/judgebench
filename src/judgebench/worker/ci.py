@@ -119,9 +119,16 @@ class CiReader:
 
 
 def ci_findings(
-    reader: CiReader | None, ref: RepoRef, sha: str, root: Path
+    reader: CiReader | None, ref: RepoRef, sha: str, root: Path, test_functions: int | None = None
 ) -> tuple[list[Finding], CheckStatus, dict[str, Any]]:
-    """Returns (findings, CI check status, details for behaviour_checks + Telegram)."""
+    """Returns (findings, CI check status, details for behaviour_checks + Telegram).
+
+    §7.5: VERIFIED needs a behavioural source (a green run of a real test command) AND matching code
+    evidence (test functions in the repository). One of the two is PARTIALLY_VERIFIED."""
+    if test_functions is None:
+        from judgebench.adapters.wiring import CodeIndex
+
+        test_functions = CodeIndex(root).test_functions
     workflows = read_workflows(root)
     tested = {w.path for w in workflows if w.test_commands}
     details: dict[str, Any] = {
@@ -195,10 +202,13 @@ def ci_findings(
                     if job.get("conclusion") == "success" and (count := reader.log_test_count(ref, int(job["id"]))):
                         break
             behavioural = has_tests and (count is None or count[1] > 0)
+            verified = behavioural and test_functions > 0
             tests_txt = (
                 (f"{count[0]}, {count[1]} tests" if count else "test command present") if has_tests else "no tests"
             )
             obs = f'GitHub Actions "{name}" passed on {sha[:7]} ({tests_txt})'
+            if behavioural:
+                obs += f"; {test_functions} test functions in code" if verified else "; no test functions found in code"
             if not has_tests:
                 obs = f'GitHub Actions "{name}" passed on {sha[:7]} but the workflow runs no tests'
             findings.append(
@@ -208,14 +218,16 @@ def ci_findings(
                     source_type=SourceType.CI,
                     source_locator=locator,
                     criterion="engineering",
-                    status=EvidenceStatus.VERIFIED if behavioural else EvidenceStatus.OBSERVED,
+                    status=EvidenceStatus.VERIFIED if verified else EvidenceStatus.OBSERVED,
                     confidence=0.9,
                     verification_method="ci_read",
                     behavioural=behavioural,
                 )
             )
-            if behavioural:
+            if verified:
                 status = CheckStatus.VERIFIED
+            elif behavioural and status is not CheckStatus.VERIFIED:
+                status = CheckStatus.PARTIALLY_VERIFIED
             lines.append(obs.removeprefix("GitHub Actions "))
         elif conclusion in ("failure", "timed_out", "startup_failure"):
             failed = [j.get("name", "?") for j in reader.jobs(ref, int(run["id"])) if j.get("conclusion") == "failure"][
@@ -234,7 +246,7 @@ def ci_findings(
                     criterion="engineering",
                 )
             )
-            if status is not CheckStatus.VERIFIED:
+            if status not in (CheckStatus.VERIFIED, CheckStatus.PARTIALLY_VERIFIED):
                 status = CheckStatus.CHECK_FAILED
             lines.append(obs.removeprefix("GitHub Actions "))
     details["summary"] = "; ".join(lines[:3]) or "runs still in progress"
