@@ -174,6 +174,10 @@ def _source(e: Evidence, sub: Submission) -> tuple[str, str | None]:
         return "demo video" + (f" at {at}" if at else ""), sub.demo_url
     if e.source_type == "form":
         return "submission form", None
+    if gh and loc == "repository":
+        return "repository", f"{gh}/tree/{sub.commit_sha or 'HEAD'}"
+    if gh and re.fullmatch(r"[\w.\-/]+", loc) and ".." not in loc:  # a repo path without line numbers
+        return loc, f"{gh}/blob/{sub.commit_sha or 'HEAD'}/{loc}"
     return loc[:120], None
 
 

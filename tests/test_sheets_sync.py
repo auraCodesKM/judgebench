@@ -256,6 +256,13 @@ def test_team_detail_and_leaderboard_for_judges(session_factory: sessionmaker[Se
     evidence_cells = [r[4] for k, r in tabs["Team Detail"].items() if k.startswith("crit:") and isinstance(r[4], Link)]
     assert any("github.com/acme/demo/actions/runs/7" in u for c in evidence_cells for *_, u in c.spans)
     code = session.query(m.Evidence).filter_by(submission_id=sub.id, key="rag.retrieval_on_request_path").one()
+    ci_cfg = m.Evidence(source_type="code", source_locator=".github/workflows/test.yml", provenance={})
+    sha = sub.commit_sha
+    assert _source(ci_cfg, sub) == (
+        ".github/workflows/test.yml",
+        f"https://github.com/acme/demo/blob/{sha}/.github/workflows/test.yml",
+    )
+    assert _source(m.Evidence(source_type="code", source_locator="../etc/x", provenance={}), sub)[1] is None
     assert _source(code, sub) == (
         "app/rag.py#L12",
         f"https://github.com/acme/demo/blob/{sub.commit_sha}/app/rag.py#L12",
