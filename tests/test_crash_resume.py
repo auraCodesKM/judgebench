@@ -23,12 +23,17 @@ from tests.test_m2_flow import deps, drive, submit
 pytestmark = pytest.mark.db
 
 
-def test_sigkill_mid_evaluation_then_resume(session_factory: sessionmaker[Session], session: Session,
-                                            tmp_path: Path) -> None:
+def test_sigkill_mid_evaluation_then_resume(
+    session_factory: sessionmaker[Session], session: Session, tmp_path: Path
+) -> None:
     sub = submit(session, "Team Alpha")
     flag = tmp_path / "flag"
-    worker = subprocess.Popen([sys.executable, "-m", "tests.crash_worker", TEST_DB_URL, str(flag)],
-                              cwd=Path(__file__).parents[1], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    worker = subprocess.Popen(
+        [sys.executable, "-m", "tests.crash_worker", TEST_DB_URL, str(flag)],
+        cwd=Path(__file__).parents[1],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
     deadline = time.monotonic() + 90
     while not flag.exists():
         assert worker.poll() is None, worker.stderr.read().decode()[-2000:] if worker.stderr else "worker died"
@@ -54,7 +59,8 @@ def test_sigkill_mid_evaluation_then_resume(session_factory: sessionmaker[Sessio
     assert sub.state == State.READY_FOR_REVIEW
     assert not any(s.agent == "claim_analyst" for s in llm.seen)  # evidence stage was not redone
     assert {e.stage_attempt for e in session.query(m.Evidence).filter_by(submission_id=sub.id)} == {
-        sub.source_hashes["evidence_attempt"]}
+        sub.source_hashes["evidence_attempt"]
+    }
     assert session.query(m.Evaluation).filter_by(submission_id=sub.id).count() == 1
     after = Counter(n.stage for n in session.query(m.Notification).filter_by(submission_id=sub.id))
     assert all(v == 1 for k, v in after.items() if k != "CRITIC"), after  # one message per stage

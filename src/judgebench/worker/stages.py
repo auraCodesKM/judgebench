@@ -163,8 +163,8 @@ def _persist_usage(
                 tokens_per_sec=call.tokens_per_sec,
             )
         )
-    agents = {c.agent for c in meter.calls} | set(meter.tools)
-    for name in sorted(agents):
+    agents = list(dict.fromkeys([*(c.agent for c in meter.calls), *meter.tools]))  # first-call order
+    for name in agents:
         calls = [c for c in meter.calls if c.agent == name]
         session.add(
             AgentRun(
@@ -535,7 +535,18 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     summary = ", ".join(f"{counts[k]} {label}" for k, label in labels if counts[k])
     _notify(session, sub, "CLAIMS", f"Claims: {len(claims)} extracted" + (f", {summary}" if summary else ""))
     _persist_usage(session, sub, meter, "EVALUATING", evaluation.id)
-    transition(session, sid, State.EVALUATING, State.CRITIQUING, message=None, keep_lease=False)
+    transition(
+        session,
+        sid,
+        State.EVALUATING,
+        State.CRITIQUING,
+        message=None,
+        keep_lease=False,
+        detail={
+            "agents": list(dict.fromkeys(c.agent for c in meter.calls)),
+            "tools": meter.tools.get("claim_investigator", []),
+        },
+    )
 
 
 # --- CRITIQUING ------------------------------------------------------------------------
