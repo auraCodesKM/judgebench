@@ -171,7 +171,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     from judgebench.worker.stages import Deps
 
     deps = Deps.from_settings()
-    metrics, reports = bench.run(sessions(), deps, runs=args.runs, k=args.k)
+    metrics, reports = bench.run(sessions(), deps, runs=args.runs, k=args.k, only=args.only)
     print(
         f"Retrieval ({deps.embedder.model}, {metrics.queries} labelled queries): "
         f"Recall@{metrics.k}={metrics.recall_at_k} MRR={metrics.mrr}\n"
@@ -244,6 +244,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("bench")
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--k", type=int, default=3)
+    p.add_argument("--only", action="append", help="cast repo name (repeatable), e.g. --only beta")
     p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("explain")
     p.add_argument("slug")

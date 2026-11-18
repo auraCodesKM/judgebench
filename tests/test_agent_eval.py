@@ -90,3 +90,18 @@ def test_bench_runner_smoke(session_factory: sessionmaker[Session]) -> None:
     metrics, reports = bench.run(session_factory, deps(repos.ALPHA_RAG, fake()), runs=1)
     assert metrics.queries == 16 and len(reports) == 6
     assert all(r.runs == 1 and not r.failures for r in reports)
+
+
+def test_bench_only_and_cast_answers(session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) -> None:
+    import yaml
+
+    from judgebench import bench
+
+    spec = yaml.safe_load(bench.CAST.read_text())
+    spec["repos"]["beta"]["answers"] = {"deployed_url": "https://beta.example.app/", "sample_request": "GET /health"}
+    monkeypatch.setattr(bench, "CAST", type("P", (), {"read_text": lambda self: yaml.safe_dump(spec)})())
+    _, reports = bench.run(session_factory, deps(repos.ALPHA_RAG, fake()), runs=1, only=["beta"])
+    assert [r.name for r in reports] == ["beta"]
+    with session_factory() as s:
+        sub = s.query(m.Submission).filter_by(form_response_id="beta-0").one()
+        assert sub.deployed_url == "https://beta.example.app/" and sub.form_answers["sample_request"] == "GET /health"

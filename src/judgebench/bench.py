@@ -22,8 +22,13 @@ from judgebench.worker.stages import Deps
 CAST = Path(__file__).resolve().parents[2] / "benchmark" / "cast.yaml"
 
 
-def run(factory: sessionmaker[Session], deps: Deps, runs: int = 3, k: int = 3) -> tuple[Metrics, list[CaseReport]]:
+def run(
+    factory: sessionmaker[Session], deps: Deps, runs: int = 3, k: int = 3, only: list[str] | None = None
+) -> tuple[Metrics, list[CaseReport]]:
     spec: dict[str, Any] = yaml.safe_load(CAST.read_text())
+    if only:
+        spec["repos"] = {n: r for n, r in spec["repos"].items() if n in only}
+        spec["queries"] = [q for q in spec["queries"] if q["repo"] in only]
     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     with factory() as s:
         tenant = s.query(Tenant).filter_by(name="default").first() or Tenant(name="default")
@@ -57,7 +62,9 @@ def run(factory: sessionmaker[Session], deps: Deps, runs: int = 3, k: int = 3) -
                     version=1,
                     submitted_at=utcnow(),
                     repo_url=repo["url"],
-                    form_answers={},
+                    form_answers=dict(repo.get("answers", {})),  # deployed_url, sample_request, demo_url, ...
+                    deployed_url=repo.get("answers", {}).get("deployed_url"),
+                    demo_url=repo.get("answers", {}).get("demo_url"),
                     state=State.RECEIVED,
                 )
                 s.add(sub)
