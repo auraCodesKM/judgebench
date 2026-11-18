@@ -66,7 +66,7 @@ module = ["google_auth_oauthlib.*", "google.oauth2.*", "google.auth.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["judgebench.google.workspace", "judgebench.pubsub"]
+module = ["judgebench.google.workspace", "judgebench.pubsub", "judgebench.cli.doctor"]
 disallow_untyped_calls = false  # google-auth ships partial types
 
 [tool.pytest.ini_options]
