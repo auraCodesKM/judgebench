@@ -43,6 +43,15 @@ def test_offline_mode_never_calls_vertex(monkeypatch: pytest.MonkeyPatch) -> Non
     assert [(r.name, r.status) for r in doctor.check_vertex()] == [("vertex", "SKIP")]
 
 
+def test_gemini_free_without_key_fails_with_fix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from judgebench import config
+
+    cfg = config.Settings(**{**config.settings().__dict__, "llm_mode": "gemini_free", "gemini_api_key": None})
+    monkeypatch.setattr(doctor, "settings", lambda: cfg)
+    [r] = doctor.check_vertex()
+    assert r.status == "FAIL" and "GEMINI_API_KEY" in r.detail and "item 9" in r.fix
+
+
 def test_a_crashing_check_does_not_hide_others() -> None:
     def broken() -> list[doctor.Result]:
         raise RuntimeError("boom")

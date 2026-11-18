@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from judgebench.agents import runtime, team
+from judgebench.agents.modes import FreeTierRefused, submission_repo
 from judgebench.agents.runtime import Meter, fence
 from judgebench.db.models import (
     Claim,
@@ -160,10 +161,17 @@ class Copilot:
             return f"I found nothing in {t.name}'s code or evidence about that."
         excerpts = "\n\n".join(f"[S{i}] {h.locator}\n{h.content[:1500]}" for i, h in enumerate(hits, 1))
         meter = Meter()
-        state = self.run_agent(
-            team.copilot(self.model, meter),
-            {"question_block": fence("judge_question", question, 1000), "excerpts_block": fence("excerpts", excerpts)},
-        )
+        try:
+            with submission_repo(sub.repo_url):
+                state = self.run_agent(
+                    team.copilot(self.model, meter),
+                    {
+                        "question_block": fence("judge_question", question, 1000),
+                        "excerpts_block": fence("excerpts", excerpts),
+                    },
+                )
+        except FreeTierRefused:
+            return f"{t.name}: the Gemini API free tier is limited to the demo-cast repos; /evidence still works."
         _usage(s, sub, meter)
         answer = str(state.get("answer") or "No answer.").strip()
         cited = [h for i, h in enumerate(hits, 1) if f"[S{i}]" in answer] or hits[:3]

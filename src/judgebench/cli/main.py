@@ -179,7 +179,7 @@ def cmd_copilot_poll(_: argparse.Namespace) -> None:
     Same handler and the same membership checks; private chats only."""
     import httpx
 
-    from judgebench.agents.offline import configured
+    from judgebench.agents.modes import configured
     from judgebench.retrieval import default_embedder
     from judgebench.telegram.copilot import Copilot
     from judgebench.telegram.notify import TelegramBot

@@ -229,8 +229,13 @@ def check_github() -> list[Result]:
 
 def check_vertex() -> list[Result]:
     cfg = settings()
-    if cfg.llm_mode != "vertex":
+    if cfg.llm_mode == "offline":
         return [_skip("vertex", "LLM_MODE=offline: mock agents + lexical embedder, no model calls, $0")]
+    if cfg.llm_mode == "gemini_free":
+        try:
+            return _check_models(_free_client(), "gemini_free", embeddings=False)
+        except _Missing as exc:
+            return [_fail("gemini_free", str(exc), exc.fix)]
     if not cfg.google_cloud_project:
         return [
             _fail(
@@ -241,7 +246,6 @@ def check_vertex() -> list[Result]:
         ]
     try:
         from google import genai
-        from google.genai import types
 
         client = genai.Client(
             vertexai=True, project=cfg.google_cloud_project, location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
@@ -254,17 +258,39 @@ def check_vertex() -> list[Result]:
                 "gcloud auth application-default login && gcloud auth application-default set-quota-project <project>",
             )
         ]
+    return _check_models(client, "vertex", embeddings=True)
+
+
+def _free_client() -> Any:
+    from google import genai
+
+    key = settings().gemini_api_key
+    if not key:
+        raise _Missing("GEMINI_API_KEY not set", "M0 item 9: create an AI Studio key and put it in .env")
+    return genai.Client(api_key=key, vertexai=False)
+
+
+class _Missing(Exception):
+    def __init__(self, detail: str, fix: str) -> None:
+        super().__init__(detail)
+        self.fix = fix
+
+
+def _check_models(client: Any, prefix: str, embeddings: bool) -> list[Result]:
+    from google.genai import types
+
+    cfg = settings()
     out = []
     for label, model in {"model": cfg.gemini_model, "model_strong": cfg.gemini_model_strong}.items():
         if label == "model_strong" and model == cfg.gemini_model:
             continue
         try:
             r = client.models.generate_content(model=model, contents="Reply with the single word: ok")
-            out.append(_ok(f"vertex_{label}", f"{model} answered {(r.text or '').strip()[:20]!r}"))
+            out.append(_ok(f"{prefix}_{label}", f"{model} answered {(r.text or '').strip()[:20]!r}"))
         except Exception as exc:
             out.append(
                 _fail(
-                    f"vertex_{label}",
+                    f"{prefix}_{label}",
                     f"{model}: {str(exc)[:120]}",
                     BILLING_FIX
                     if _billing(exc)
@@ -282,14 +308,14 @@ def check_vertex() -> list[Result]:
         )
         ok = json.loads(r.text or "{}").get("answer") is not None
         out.append(
-            _ok("vertex_structured_output", "JSON schema respected")
+            _ok(f"{prefix}_structured_output", "JSON schema respected")
             if ok
-            else _fail("vertex_structured_output", f"unexpected: {(r.text or '')[:80]}", "try a newer Flash model")
+            else _fail(f"{prefix}_structured_output", f"unexpected: {(r.text or '')[:80]}", "try a newer Flash model")
         )
     except Exception as exc:
         out.append(
             _fail(
-                "vertex_structured_output",
+                f"{prefix}_structured_output",
                 str(exc)[:120],
                 BILLING_FIX if _billing(exc) else "try a newer Flash model",
             )
@@ -300,23 +326,28 @@ def check_vertex() -> list[Result]:
             video_metadata=types.VideoMetadata(start_offset="0s", end_offset="10s", fps=0.5),
         )
         r = client.models.generate_content(model=model, contents=[video, "In three words, what animal is shown?"])
-        out.append(_ok("vertex_youtube_input", f"video read: {(r.text or '').strip()[:40]!r}"))
+        out.append(_ok(f"{prefix}_youtube_input", f"video read: {(r.text or '').strip()[:40]!r}"))
     except Exception as exc:
         out.append(
             _fail(
-                "vertex_youtube_input",
+                f"{prefix}_youtube_input",
                 str(exc)[:120],
                 BILLING_FIX
                 if _billing(exc)
                 else "the model/region may not accept YouTube URLs; try GOOGLE_CLOUD_LOCATION=global or another model",
             )
         )
+    if not embeddings:
+        return [
+            *out,
+            _skip(f"{prefix}_embeddings", "lexical hashing embedder (no participant text sent for embedding)"),
+        ]
     try:
         from judgebench.db.models import EMBED_DIM
         from judgebench.retrieval import VertexEmbedder
 
         [vec] = VertexEmbedder(
-            cfg.google_cloud_project, os.environ.get("GOOGLE_CLOUD_LOCATION", "global"), cfg.embedding_model
+            cfg.google_cloud_project or "", cfg.google_cloud_location, cfg.embedding_model
         ).embed(["retrieval check"], query=True)
         out.append(
             _ok("vertex_embeddings", f"{cfg.embedding_model}: {len(vec)} dims")
@@ -341,10 +372,13 @@ def check_vertex() -> list[Result]:
 
 
 def _billing(exc: Exception) -> bool:
-    return "billing" in str(exc).lower()
+    return "billing" in str(exc).lower() or "resource_exhausted" in str(exc).lower()
 
 
-BILLING_FIX = "billing is not enabled on this project: keep LLM_MODE=offline for $0 runs (Vertex calls are billed)"
+BILLING_FIX = (
+    "billing not enabled (Vertex) or free-tier quota used up (gemini_free: wait a minute, or until midnight "
+    "Pacific for daily limits). Never enable billing for this; LLM_MODE=offline always works at $0"
+)
 
 
 def _available_models(client: Any) -> list[str]:

@@ -27,7 +27,7 @@ tracing.setup("telegram")
 
 @cache
 def copilot() -> Copilot:
-    from judgebench.agents.offline import configured
+    from judgebench.agents.modes import configured
     from judgebench.retrieval import default_embedder
 
     return Copilot(embedder=default_embedder(), model=configured(settings().gemini_model))

@@ -199,4 +199,6 @@ def parse_json(text: Any) -> Any:
 
 
 def model_name(model: Any) -> str:
-    return model if isinstance(model, str) else str(getattr(model, "model", "unknown"))
+    from judgebench.agents.modes import model_label
+
+    return model_label(model)

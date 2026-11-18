@@ -154,14 +154,3 @@ OFFLINE: dict[str, Handler] = {
 
 def offline_model() -> FakeLlm:
     return FakeLlm(model=OFFLINE_MODEL, handlers=OFFLINE, seen=[])
-
-
-def configured(name: str) -> "str | FakeLlm":
-    """The model agents should use: the named Gemini model only when LLM_MODE=vertex."""
-    from judgebench.config import settings
-
-    return name if settings().llm_mode == "vertex" else offline_model()
-
-
-def is_mock(model: str | None) -> bool:
-    return model == OFFLINE_MODEL

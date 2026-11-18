@@ -15,7 +15,7 @@ from itertools import combinations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from judgebench.agents.offline import is_mock
+from judgebench.agents.modes import is_mock
 from judgebench.db.models import CriterionScore, Evaluation, JudgeReview
 
 

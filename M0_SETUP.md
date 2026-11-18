@@ -120,6 +120,14 @@ Only for `LLM_MODE=vertex`. Needs billing on the project; every Gemini and embed
 `cp events/example.yaml events/<slug>.yaml`, then set `name`, `deadline` (with timezone), `telegram_chat_id` and `judges`.
 - **Check:** `uv run python -c "from pathlib import Path; from judgebench.event_config import load_event_config as l; print(l(Path('events/<slug>.yaml')).slug)"`
 
+### 9. Gemini API free-tier key (3 min), only for `LLM_MODE=gemini_free` on the demo cast
+- **Where:** https://aistudio.google.com/apikey → **Create API key** → pick a Google Cloud project **with no billing account** (e.g. `judgebench-kavin-2026`, or let AI Studio create one).
+- **.env:** `GEMINI_API_KEY=<key>`. Set `LLM_MODE=gemini_free` only for demo-cast runs (`judgebench bench`), and keep `offline` for the real event: in `gemini_free` mode every non-demo-cast repo is refused and marked FAILED.
+- **Don't:**
+  - Click **Set up billing**, **Upgrade** or **Paid tier** anywhere in AI Studio. With billing attached, the same key becomes billed.
+  - Use this key for real participants' code. Free-tier content may be used by Google to improve its products, which is why code only allows the demo cast.
+- **Check:** `LLM_MODE=gemini_free uv run --env-file .env judgebench doctor` shows `gemini_free_model PASS`. If the model 404s, set `GEMINI_MODEL` to a free-tier model the fix line lists. A `429 RESOURCE_EXHAUSTED` means the free quota is used up for the minute or day; the worker backs off and retries.
+
 ---
 
 ## Verify M1 (after items 1-6 and 8)

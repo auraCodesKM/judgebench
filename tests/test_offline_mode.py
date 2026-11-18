@@ -4,7 +4,8 @@ labelled MOCK (Telegram, Sheets, evaluation model), so nobody mistakes it for a 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from judgebench.agents.offline import OFFLINE_MODEL, configured, offline_model
+from judgebench.agents.modes import configured
+from judgebench.agents.offline import OFFLINE_MODEL, offline_model
 from judgebench.db import models as m
 from judgebench.google.sheets_sync import build_tabs
 from judgebench.states import State

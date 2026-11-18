@@ -16,3 +16,5 @@ build/
 .env
 *.token.json
 .secrets/
+events/*.yaml
+!events/example.yaml

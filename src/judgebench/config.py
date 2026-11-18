@@ -29,7 +29,8 @@ class Settings:
     embedding_model: str
     telegram_webhook_secret: str | None
     google_cloud_location: str
-    llm_mode: str  # offline (default: mock agents + lexical embedder, $0) | vertex (real Gemini, billed)
+    llm_mode: str  # offline (default, mock, $0) | gemini_free (AI Studio free tier, demo cast only) | vertex (billed)
+    gemini_api_key: str | None
 
 
 @cache
@@ -53,7 +54,8 @@ def settings() -> Settings:
         embedding_model=env("EMBEDDING_MODEL", "gemini-embedding-001"),
         telegram_webhook_secret=env("TELEGRAM_WEBHOOK_SECRET") or None,
         google_cloud_location=env("GOOGLE_CLOUD_LOCATION", "global"),
-        llm_mode=_choice(env("LLM_MODE", "offline"), {"offline", "vertex"}, "LLM_MODE"),
+        llm_mode=_choice(env("LLM_MODE", "offline"), {"offline", "gemini_free", "vertex"}, "LLM_MODE"),
+        gemini_api_key=env("GEMINI_API_KEY") or None,
     )
 
 
