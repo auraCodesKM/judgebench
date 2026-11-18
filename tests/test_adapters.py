@@ -80,3 +80,18 @@ def test_reachability_follows_callbacks_and_handlers(tmp_path: Path) -> None:
     live = idx.reachable()
     assert {"ui.py:respond", "ui.py:helper"} <= live
     assert "ui.py:unused" not in live
+
+
+def test_hand_rolled_retrieval_is_rag_and_llm_sdk_is_not_agentic(tmp_path: Path) -> None:
+    """Regressions found on the real demo cast: Alpha (pure-Python BM25) was 'generic';
+    Beta (langchain + openai) was 'agentic'."""
+    alpha = snapshot(
+        tmp_path / "a",
+        {
+            "app/bm25.py": "class BM25:\n    def scores(self, q):\n        return []\n",
+            "app/rag.py": "class Retriever:\n    def retrieve(self, q):\n        return []\n\ndef load_chunks():\n    return []\n",
+        },
+    )
+    assert "rag" in alpha.profile.recommended_adapters and "custom-retrieval" in alpha.profile.technologies
+    beta = snapshot(tmp_path / "b", {"requirements.txt": "langchain\nopenai\n", "app.py": "import openai\n"})
+    assert "agentic" not in beta.profile.recommended_adapters

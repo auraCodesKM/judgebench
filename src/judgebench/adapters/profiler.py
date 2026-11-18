@@ -17,7 +17,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 PROFILER_VERSION = "0.1.0"
-RULES_VERSION = "2026-11-19"
+RULES_VERSION = "2026-11-20"
 
 
 class Category(StrEnum):
@@ -76,11 +76,11 @@ RULES: dict[str, tuple[str, dict[Category, float]]] = {
     "sentence_transformers": ("sentence-transformers", {RAG: 0.3}),
     "rank_bm25": ("bm25", {RAG: 0.3}),
     "cohere": ("cohere", {RAG: 0.1}),
-    "openai": ("openai", {RAG: 0.1, AG: 0.1}),
-    "anthropic": ("anthropic", {RAG: 0.1, AG: 0.1}),
-    "google_genai": ("gemini", {RAG: 0.1, AG: 0.1}),
-    "google_generativeai": ("gemini", {RAG: 0.1, AG: 0.1}),
-    "vertexai": ("vertex-ai", {RAG: 0.1, AG: 0.1}),
+    "openai": ("openai", {RAG: 0.1}),
+    "anthropic": ("anthropic", {RAG: 0.1}),
+    "google_genai": ("gemini", {RAG: 0.1}),
+    "google_generativeai": ("gemini", {RAG: 0.1}),
+    "vertexai": ("vertex-ai", {RAG: 0.1}),
     "ollama": ("ollama", {RAG: 0.1}),
     "langgraph": ("langgraph", {AG: 0.6}),
     "crewai": ("crewai", {AG: 0.6}),
@@ -121,9 +121,9 @@ RULES: dict[str, tuple[str, dict[Category, float]]] = {
     "gradio": ("gradio", {}),
     # npm (scope stripped, see _norm)
     "tfjs": ("tensorflow", {ML: 0.3}),
-    "genai": ("gemini", {RAG: 0.1, AG: 0.1}),
-    "generative_ai": ("gemini", {RAG: 0.1, AG: 0.1}),
-    "ai": ("vercel-ai-sdk", {RAG: 0.1, AG: 0.1}),
+    "genai": ("gemini", {RAG: 0.1}),
+    "generative_ai": ("gemini", {RAG: 0.1}),
+    "ai": ("vercel-ai-sdk", {RAG: 0.1}),
 }
 
 LANGUAGES = {
@@ -294,6 +294,13 @@ def _string_calls(tree: ast.Module, funcs: set[str]) -> list[str]:
     return found
 
 
+_RAG_DEF = re.compile(r"(?i)(bm25|retriev|embed|vector_?store|rerank|chunk|tfidf|similarity)")
+
+
+def _defined_names(tree: ast.Module) -> set[str]:
+    return {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)}
+
+
 def _has_main_guard(tree: ast.Module) -> bool:
     return any(
         isinstance(n, ast.If)
@@ -377,6 +384,7 @@ def profile_repository(root: Path, *, commit_sha: str, limitations: list[str]) -
     directories: dict[str, set[str]] = {role: set() for role in DIR_ROLES}
     readme: str | None = None
     names: set[str] = set()
+    defined: set[str] = set()
     parsed = 0
 
     for p in files:
@@ -434,6 +442,7 @@ def profile_repository(root: Path, *, commit_sha: str, limitations: list[str]) -
             if tree is None:
                 continue
             names |= _imports(tree)
+            defined |= _defined_names(tree)
             models += _string_calls(tree, {"from_pretrained", "SentenceTransformer", "pipeline"})
             datasets += _string_calls(tree, {"load_dataset"})
             if p.suffix == ".py" and r not in entry and _has_main_guard(tree):
@@ -449,6 +458,11 @@ def profile_repository(root: Path, *, commit_sha: str, limitations: list[str]) -
             technologies.add(tech)
             for cat, w in weights.items():
                 scores[cat] += w
+    # Hand-rolled implementations: code identifiers (never prose) that name a retrieval pipeline.
+    rag_defs = {d for d in defined if _RAG_DEF.search(d)}
+    if len(rag_defs) >= 2:
+        scores[RAG] += 0.3
+        technologies.add("custom-retrieval")
     # Layout signals: weak on purpose.
     if directories["training"]:
         scores[ML] += 0.2
