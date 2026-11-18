@@ -154,7 +154,10 @@ def cmd_bench(args: argparse.Namespace) -> None:
         f"Retrieval ({deps.embedder.model}, {metrics.queries} labelled queries): "
         f"Recall@{metrics.k}={metrics.recall_at_k} MRR={metrics.mrr}\n"
     )
-    print(f"Agents ({settings().gemini_model} / {settings().gemini_model_strong}, {args.runs} runs per repo)")
+    if settings().llm_mode == "offline":
+        print("Agents: MOCK (LLM_MODE=offline). Routing, tools and budgets are real; scores and variance are not.")
+    else:
+        print(f"Agents ({settings().gemini_model} / {settings().gemini_model_strong}, {args.runs} runs per repo)")
     print(agent_eval.render(reports))
 
 

@@ -13,6 +13,7 @@ the agent; every tool call records name, args and a short observation (the ReAct
 
 import asyncio
 import json
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -33,6 +34,9 @@ from google.genai import types
 from judgebench import tracing
 from judgebench.config import settings
 from judgebench.errors import StageError
+
+# ADK warns on every run that our app name differs from the agents package name. Harmless, pure noise.
+logging.getLogger("google_adk.google.adk.runners").setLevel(logging.ERROR)
 
 PROMPT_VERSION = "2026-11-19.1"
 MAX_LLM_CALLS = 40

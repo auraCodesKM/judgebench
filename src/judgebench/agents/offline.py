@@ -102,7 +102,10 @@ def _specialist(s: Seen) -> dict[str, Any]:
     }
 
 
-def _investigator(s: Seen) -> dict[str, Any]:
+def _investigator(s: Seen) -> dict[str, Any] | types.FunctionCall:
+    claim = re.search(r"^C\d+ \([^)]*\): (.{3,60})", s.text, re.M)
+    if s.turn == 0 and claim:  # one real tool call over the real snapshot; its result is not interpreted
+        return types.FunctionCall(name="search_code", args={"text": claim.group(1).split()[0]})
     return {
         "verdicts": [
             {"claim_id": c, "status": "UNVERIFIED", "rationale": MOCK + "claim not assessed by a model"}
