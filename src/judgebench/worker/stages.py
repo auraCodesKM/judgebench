@@ -55,7 +55,7 @@ from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
 from judgebench.worker.extract import extract_tarball
 from judgebench.worker.github import GitHub, RepoRef, parse_repo_url
-from judgebench.worker.live_check import HttpProbeClient, ProbeClient, live_check_findings
+from judgebench.worker.live_check import ProbeClient, live_check_findings, probe_client
 from judgebench.worker.pipeline import _profile
 from judgebench.workflow import claim_next, record_failure, sweep_exhausted, transition
 
@@ -78,7 +78,7 @@ class Deps:
     @classmethod
     def from_settings(cls) -> "Deps":
         cfg = settings()
-        return cls(GitHub(cfg.github_token), HttpProbeClient(cfg.probe_url), cfg.gemini_model, cfg.gemini_model_strong)
+        return cls(GitHub(cfg.github_token), probe_client(cfg.probe_url), cfg.gemini_model, cfg.gemini_model_strong)
 
 
 @dataclass

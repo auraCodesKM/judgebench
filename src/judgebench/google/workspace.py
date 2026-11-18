@@ -165,7 +165,16 @@ def list_responses(s: AuthorizedSession, form_id: str, since: str | None) -> lis
 # --- Sheets / Drive -------------------------------------------------------------------
 
 TABS: dict[str, list[str]] = {
-    "Leaderboard": ["Team", "Version", "Commit", "Status", "Detected categories", "Updated (UTC)"],
+    "Leaderboard": [
+        "Team",
+        "Version",
+        "Commit",
+        "Status",
+        "Detected categories",
+        "Score",
+        "Confidence",
+        "Updated (UTC)",
+    ],
     "Evaluations": ["Team", "Criterion", "Score", "Max", "Rationale", "Evidence IDs", "Confidence"],
     "Evidence": ["Team", "Evidence ID", "Claim", "Observation", "Source", "Status", "Confidence"],
     "Judge Reviews": ["Team", "Judge", "Criterion", "Human score", "Comment", "Override reason"],
@@ -230,8 +239,16 @@ def share_with(s: AuthorizedSession, file_id: str, email: str) -> None:
     )
 
 
-def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[str | int]]) -> None:
-    """Replace everything under the header row. RAW: values are never parsed as formulas."""
+def write_tab(s: AuthorizedSession, spreadsheet_id: str, tab: str, rows: Sequence[Sequence[str | int | float]]) -> None:
+    """Rewrite the header (so new columns reach existing workbooks) and replace everything under it.
+    RAW: values are never parsed as formulas."""
+    _call(
+        s,
+        "PUT",
+        f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A1",
+        params={"valueInputOption": "RAW"},
+        json={"values": [TABS[tab]]},
+    )
     _call(s, "POST", f"{SHEETS}/{spreadsheet_id}/values/'{tab}'!A2:Z:clear", json={})
     if rows:
         _call(

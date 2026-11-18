@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from judgebench.db.models import Event, EventIntegration, RepositoryProfileRow, Submission, Team
+from judgebench.db.models import Evaluation, Event, EventIntegration, RepositoryProfileRow, Submission, Team
 
 CATEGORY_LABELS = {
     "traditional_ml": "ML",
@@ -21,8 +21,8 @@ CATEGORY_LABELS = {
     "vision_multimodal": "Vision",
     "ai_infrastructure": "AI infra",
 }
-Row = list[str | int]
-Writer = Callable[[str, str, Sequence[Sequence[str | int]]], None]  # (spreadsheet_id, tab, rows)
+Row = list[str | int | float]
+Writer = Callable[[str, str, Sequence[Sequence[str | int | float]]], None]  # (spreadsheet_id, tab, rows)
 
 
 def leaderboard_rows(session: Session, event_id: uuid.UUID) -> list[Row]:
@@ -57,10 +57,21 @@ def leaderboard_rows(session: Session, event_id: uuid.UUID) -> list[Row]:
                 (sub.commit_sha or "")[:7],
                 sub.state.value,
                 ", ".join(CATEGORY_LABELS.get(c, c) for c in sorted(cats)),
+                *_score(session, sub),
                 sub.updated_at.strftime("%Y-%m-%d %H:%M"),
             ]
         )
     return rows
+
+
+def _score(session: Session, sub: Submission) -> tuple[float | str, str]:
+    ev = session.scalars(
+        select(Evaluation)
+        .where(Evaluation.submission_id == sub.id, Evaluation.status == "ready")
+        .order_by(Evaluation.created_at.desc())
+        .limit(1)
+    ).first()
+    return (ev.total_score if ev and ev.total_score is not None else "", ev.confidence or "" if ev else "")
 
 
 def publish_leaderboard(session: Session, event: Event, write: Writer) -> bool:

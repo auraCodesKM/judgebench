@@ -40,7 +40,7 @@ def settings() -> Settings:
         google_token_file=env("GOOGLE_TOKEN_FILE", ".secrets/google.token.json"),
         google_client_secrets_file=env("GOOGLE_CLIENT_SECRETS_FILE", ".secrets/oauth_client.json"),
         probe_user_agent=env("PROBE_USER_AGENT", f"{name}-probe/0.1 (hackathon live check)"),
-        probe_url=env("PROBE_URL", "http://localhost:8081"),
+        probe_url=env("PROBE_URL", "inprocess"),
         gemini_model=env("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_model_strong=env("GEMINI_MODEL_STRONG", env("GEMINI_MODEL", "gemini-2.5-flash")),
         pubsub_topic=env("PUBSUB_TOPIC") or None,

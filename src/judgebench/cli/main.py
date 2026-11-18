@@ -68,15 +68,14 @@ def cmd_run(args: argparse.Namespace) -> None:
     from judgebench.google import workspace
     from judgebench.google.projection import publish_leaderboard
     from judgebench.telegram.notify import TelegramBot, drain
-    from judgebench.worker.github import GitHub
-    from judgebench.worker.pipeline import run_profile_stage
+    from judgebench.worker.stages import Deps, run_next
 
     cfg = settings()
     if not cfg.telegram_bot_token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set (see M0_SETUP.md)")
     factory = sessions()
     google = workspace.session(Path(cfg.google_token_file))
-    github = GitHub(cfg.github_token)
+    deps = Deps.from_settings()
     bot = TelegramBot(cfg.telegram_bot_token)
 
     def poll() -> None:
@@ -87,7 +86,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                     log.info("%s: %d new submission(s)", event.slug, len(new))
 
     def work() -> None:
-        while (sid := run_profile_stage(factory, github)) is not None:
+        while (sid := run_next(factory, deps)) is not None:
             log.info("processed %s", sid)
 
     def notify() -> None:

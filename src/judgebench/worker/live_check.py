@@ -43,6 +43,20 @@ class HttpProbeClient:
         return list(resp.json())
 
 
+class InProcessProbe:
+    """Local dev only: same guarded client, run in this process. Cloud Run uses HttpProbeClient so
+    the request leaves from the role-less probe service account (§14.1)."""
+
+    def probe(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        from judgebench.probe.app import ProbeBatch, probe
+
+        return [o.model_dump() for o in probe(ProbeBatch.model_validate({"requests": requests}))]
+
+
+def probe_client(url: str) -> ProbeClient:
+    return InProcessProbe() if url == "inprocess" else HttpProbeClient(url)
+
+
 @dataclass
 class Sample:
     request: dict[str, Any] | None
