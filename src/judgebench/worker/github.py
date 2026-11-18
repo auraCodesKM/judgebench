@@ -60,12 +60,12 @@ class GitHub:
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        self._http = client or httpx.Client(timeout=30, follow_redirects=False)
-        self._http.headers.update(headers)
+        self.http = client or httpx.Client(timeout=30, follow_redirects=False)
+        self.http.headers.update(headers)
 
-    def _get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
+    def get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
         try:
-            resp = self._http.get(url, params=params)
+            resp = self.http.get(url, params=params)
         except httpx.TransportError as exc:
             raise RepoError("github_unavailable", True, type(exc).__name__) from exc
         if resp.status_code == 404:
@@ -80,7 +80,7 @@ class GitHub:
         params = {"until": until.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": "1"}
         if ref.ref:
             params["sha"] = ref.ref
-        resp = self._get(f"{API}/repos/{ref.owner}/{ref.repo}/commits", params)
+        resp = self.get(f"{API}/repos/{ref.owner}/{ref.repo}/commits", params)
         if resp.status_code == 409:
             raise RepoError("repo_empty", False, "repository has no commits")
         if resp.status_code != 200:
@@ -97,7 +97,7 @@ class GitHub:
         url = f"{API}/repos/{ref.owner}/{ref.repo}/tarball/{sha}"
         for _ in range(3):  # api.github.com -> codeload.github.com
             try:
-                with self._http.stream("GET", url) as resp:
+                with self.http.stream("GET", url) as resp:
                     if resp.status_code in (301, 302, 307, 308):
                         url = resp.headers.get("location", "")
                         if httpx.URL(url).host not in ALLOWED_HOSTS or httpx.URL(url).scheme != "https":
