@@ -42,6 +42,7 @@ response-size cap (`test_ssrf.py`); Sheets formula injection stays text
 | Agent tools can't widen scope | Investigator tools are closures over one snapshot, with no ID parameters (`agents/team.py`) |
 | Untrusted CI output | Workflow YAML is size-capped and safe-loaded; job logs are reduced to a regex test count, never stored or prompted (`worker/ci.py`) |
 | Google refresh token only in the API component | Mounted only on `jb-api` |
+| Participant data never reaches a free tier that may train on it | `LLM_MODE=gemini_free` is allow-listed to the operator's six demo-cast repos, checked before each model stage and again inside `FreeGemini` (fails closed); Copilot uses the same check (`agents/modes.py`, `tests/test_gemini_free.py`). Default `offline` makes no model calls |
 
 ## Reporting
 
