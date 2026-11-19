@@ -268,8 +268,9 @@ def rubric_evaluator(model: Model, meter: Meter) -> LlmAgent:
         "evidence IDs; if evidence is missing say what is missing and score conservatively. A failed or impossible "
         "check (NOT_VERIFIABLE, CHECK_FAILED) is not by itself a reason to lower a score. Each rationale is one plain "
         "sentence a judge can read in five seconds. Give up to 3 suggested judge questions, each specific to this "
-        'team: quote the claim or the finding that prompted it and cite its evidence ID (e.g. "Your README claims '
-        "real-time; the live check measured 8.5 s. What's your latency target?\"). Never generic questions.",
+        "team: quote the claim or the finding that prompted it, use only numbers that appear in the evidence, and "
+        'cite its evidence ID (shape: "Your README claims <claim>; <check> found <what the evidence says>. <question>?"). '
+        "Never generic questions.",
         **callbacks(meter, model_name(model), inject),
     )
 

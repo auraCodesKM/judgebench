@@ -119,13 +119,13 @@ def calls_today(session: Session, model: str) -> int:
     )
 
 
-def quota_check(p: Preflight, session: Session, model: str, teams: int = 1) -> None:
+def quota_check(p: Preflight, session: Session, model: str, teams: int = 1, extra: int = 0) -> None:
     limit = FREE_DAILY.get(model)
     if limit is None:
         p.problems.append(f"unknown free-tier quota for {model}: set GEMINI_FREE_MODEL to one of {sorted(FREE_DAILY)}")
         return
-    left = limit - calls_today(session, model)
-    need = CALLS_PER_TEAM * teams
+    left = int((limit - calls_today(session, model)) * 0.9)  # our count misses retried requests: keep 10% back
+    need = CALLS_PER_TEAM * teams + extra
     reset = (datetime.now(ZoneInfo("America/Los_Angeles")) + timedelta(days=1)).replace(hour=0, minute=0)
     p.check(
         left >= need,

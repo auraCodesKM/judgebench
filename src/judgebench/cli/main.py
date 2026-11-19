@@ -346,8 +346,14 @@ def cmd_demo_preflight(args: argparse.Namespace) -> None:
         )
         p.check(cfg.telegram_mode == "compact", "TELEGRAM_MODE=compact", f"TELEGRAM_MODE={cfg.telegram_mode}")
         p.check(bool(cfg.gemini_api_key), "GEMINI_API_KEY set", "GEMINI_API_KEY missing in .env")
-        quota_check(p, s, cfg.gemini_free_model, teams=args.teams)
         teams = yaml.safe_load(Path("benchmark/demo_teams.yaml").read_text())
+        overrides = (event.config or {}).get("model_overrides") or {}
+        per_model: dict[str, int] = {}
+        for t in teams:  # every demo team is submitted in this flow (on camera + demo-submit)
+            model = overrides.get(t["team_name"], cfg.gemini_free_model)
+            per_model[model] = per_model.get(model, 0) + 1
+        for model, n in per_model.items():
+            quota_check(p, s, model, teams=n, extra=3 if model == cfg.gemini_free_model else 0)  # + Copilot /ask
         for t in teams:
             if url := t.get("deployed_url"):
                 out = InProcessProbe().probe([{"method": "GET", "url": url.rstrip("/") + "/health"}])[0]
@@ -509,7 +515,6 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_reset_demo)
     p = sub.add_parser("demo-preflight")
     p.add_argument("slug")
-    p.add_argument("--teams", type=int, default=1, help="teams the take will submit (quota check)")
     p.set_defaults(fn=cmd_demo_preflight)
     p = sub.add_parser("demo-submit")
     p.add_argument("slug")
