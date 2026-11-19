@@ -54,7 +54,7 @@ from judgebench.db.models import (
 from judgebench.errors import StageError
 from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
-from judgebench.judging import clip, render_question, sentence, template_questions, top_concern
+from judgebench.judging import clip, finding_name, render_question, sentence, template_questions, top_concern
 from judgebench.retrieval import Embedder, HashingEmbedder, Piece, chunk_repository, default_embedder, index_pieces
 from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
@@ -412,7 +412,11 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     sub.source_hashes = {**sub.source_hashes, "evidence_attempt": attempt}
     session.flush()
     evidence_pieces = [
-        Piece("evidence", f"evidence:{e.id}", f"{e.key} [{e.status}] {e.source_locator}: {e.observation}")
+        Piece(
+            "evidence",
+            f"evidence:{e.id}",
+            f"{finding_name(e)} ({e.status.lower()}, {e.source_locator}): {e.observation}",
+        )
         for e in session.scalars(select(Evidence).where(Evidence.stage_attempt == attempt))
     ]
     with tracing.span("retrieval.index", model=deps.embedder.model):  # for the Judge Copilot (§11.3)

@@ -7,6 +7,7 @@ Chat text never selects an event. A team outside the judge's events looks exactl
 that does not exist ("No team named X in your events"), and the attempt is logged as a denial.
 """
 
+import uuid
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from judgebench.db.models import (
     UsageRecord,
 )
 from judgebench.db.scope import EventScope, log_denial, scope_for_telegram_user
+from judgebench.judging import finding_name
 from judgebench.retrieval import Embedder, hybrid_search
 
 HELP = (
@@ -176,7 +178,7 @@ class Copilot:
         answer = str(state.get("answer") or "No answer.").strip()
         cited = [h for i, h in enumerate(hits, 1) if f"[S{i}]" in answer] or hits[:3]
         s.info["last_refs"] = [str(h.chunk_id) for h in cited]
-        return f"{answer}\n\nSources: " + "; ".join(h.locator for h in cited)
+        return f"{answer}\n\nSources: " + "; ".join(dict.fromkeys(_source(s, h.locator) for h in cited))
 
     def _log(self, s: Session, scope: EventScope, tg: int, text: str, reply: str) -> None:
         for m in s.scalars(
@@ -194,6 +196,17 @@ class Copilot:
                     response_meta={"chars": len(reply), "command": text.split(" ")[0][:20]},
                 )
             )
+
+
+def _source(s: Session, locator: str) -> str:
+    """Readable source for judges: files as-is, evidence items by what was checked (never an ID)."""
+    if locator.startswith("evidence:"):
+        try:
+            e = s.get(Evidence, uuid.UUID(locator.removeprefix("evidence:")))
+        except ValueError:
+            e = None
+        return f"check: {finding_name(e)}" if e else "check"
+    return locator.removesuffix("#1")
 
 
 def _latest(s: Session, t: Team) -> tuple[Submission | None, Evaluation | None]:

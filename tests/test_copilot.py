@@ -80,3 +80,18 @@ def test_same_team_name_in_two_events_resolves_to_the_newest(session: Session) -
     session.flush()
     scope = EventScope(actor="t", event_ids=frozenset({old_ev.id, new_ev.id}))
     assert scope.find_team(session, "team alpha").event_id == new_ev.id  # type: ignore[union-attr]
+
+
+@pytest.mark.db
+def test_sources_never_show_internal_ids(session: Session) -> None:
+    from judgebench.telegram.copilot import _source
+    from tests.conftest import make_event, make_submission, make_team
+
+    sub = make_submission(session, make_team(session, make_event(session, "src"), "Team S"))
+    e = m.Evidence(tenant_id=sub.tenant_id, event_id=sub.event_id, submission_id=sub.id, key="generic.tests", stage_attempt="a",
+                   observation="No test functions found", source_type="code", source_locator="repository", status="MISSING",
+                   confidence=0.9, verification_method="static_analysis", evaluator_version="x")  # fmt: skip
+    session.add(e)
+    session.flush()
+    assert _source(session, f"evidence:{e.id}") == "check: Tests"
+    assert _source(session, "README.md#1") == "README.md" and _source(session, "app.py#L1-L9") == "app.py#L1-L9"
