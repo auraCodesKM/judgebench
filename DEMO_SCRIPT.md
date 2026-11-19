@@ -1,88 +1,80 @@
-# Demo script: 2-minute headline video (spec §20.2)
+# Demo shot list: live take (Team Beta, gemini-3.6-flash)
 
-Recorded from **real stored runs**, replayed with `judgebench replay`. Nothing on screen is mocked
-up: every Telegram line and Sheet row comes from a stored run, and the replay labels itself
-("replay of run …, model, date · synthetic benchmark teams"). Say "sped up" on screen when replaying
-faster than real time (§20.4).
+You submit Team Beta's Google Form on camera; the agent works live in Telegram and the Sheet.
+Everything on screen is real and live. Waiting time may be cut or sped up in editing (marked ⏩); say
+"sped up" on screen when you do (§20.4).
 
-## Runs used
-
-| Scene | Run | Model | Teams |
-|---|---|---|---|
-| Beta arrives, claims, critic | the Beta run on `gemini-3.6-flash` (majority of 3, latency rule) | Gemini API free tier: gemini-3.6-flash | Team Beta |
-| Zeta, Epsilon close-ups | the Epsilon + Zeta run on `gemini-3.6-flash` | Gemini API free tier: gemini-3.6-flash | Team Epsilon, Team Zeta |
-| Batch / leaderboard | the six-team run on `gemini-3.5-flash-lite` | Gemini API free tier: gemini-3.5-flash-lite | all six |
-
-Find the slugs with `judgebench status` / the `bench-…` events (each `bench` run prints its slug), or:
-```bash
-uv run --env-file .env python -c "from sqlalchemy import select; from judgebench.db.session import sessions; from judgebench.db.models import Event; s=sessions()(); [print(e.slug, e.created_at) for e in s.scalars(select(Event).where(Event.slug.like('bench-%')).order_by(Event.created_at))]"
-```
+Event: **AI Builders Hackathon – Demo** (`demo-2026`), its own Form, workbook and the *JudgeBench Demo*
+Telegram chat. The live event is never touched.
 
 ## Screen layout (1920×1080)
 
 ```
-┌──────────────────────────────┬──────────────────────────────────────────────┐
-│ Telegram Desktop             │ Chrome: demo workbook                         │
-│ channel "JudgeBench Demo"    │ Leaderboard tab (Team Detail for close-ups)   │
-│ font: Settings › Chat › 115% │ zoom 110%, bookmarks bar hidden               │
-│ ~ 760 px wide                │ ~ 1160 px wide                                │
-└──────────────────────────────┴──────────────────────────────────────────────┘
+┌────────────────────────────┬─────────────────────────────────────────────────┐
+│ Chrome: demo Google Form   │ Telegram Desktop: "JudgeBench Demo"   (top half) │
+│ (participant view)         │ font 115%                                         │
+│                            ├─────────────────────────────────────────────────┤
+│ ~ 800 px                   │ Chrome: demo workbook, Leaderboard tab (bottom)  │
+│                            │ zoom 100%, bookmarks bar hidden                   │
+└────────────────────────────┴─────────────────────────────────────────────────┘
 ```
-- A second Telegram window (private chat with the bot) for the judge Q&A scene, opened only at 1:15.
-- Terminal off-screen. macOS Focus "Do Not Disturb" on. No tokens, emails or `.env` visible.
-- Captions added in editing, large enough to read on a phone.
+Terminal (run loop) off-screen. macOS Focus on. No `.env`, tokens or emails visible.
+Files to have open: `DEMO_FORM_ANSWERS.md` (off-screen, to copy from), this shot list.
 
-## Preparation (once, the day before)
-
-1. Demo channel: Telegram › New Channel › **JudgeBench Demo** (private) › add `@JudgeBench_bot` as admin
-   with **Post Messages** only (it edits its own posts) › post a message › forward it to the bot.
-2. Demo event file `events/judgebench-demo.yaml` (gitignored): slug `judgebench-demo`, the demo channel's
-   `telegram_chat_id`, and yourself as a judge with your `telegram_user_id`. Then:
-   ```bash
-   uv run --env-file .env judgebench setup events/judgebench-demo.yaml
-   ```
-3. Rehearse every scene at high speed (it resets the demo workbook each time):
-   ```bash
-   uv run --env-file .env judgebench replay <beta-run-slug> --into judgebench-demo --speed 60
-   ```
-4. Clear the demo channel afterwards (select messages › Delete) so the recording starts clean.
-
-## The 2 minutes
-
-| Time | On screen | Caption | Do |
-|---|---|---|---|
-| 0:00 | Leaderboard tab with all six teams (from the batch scene, recorded last, cut in here) | "Judges get five minutes per team. They can't open every repository." | — |
-| 0:08 | Telegram: `▶ Start of replay of run …` then **Team Beta**'s progress message appears | "A team submits its code, slides and demo." | `replay <beta-run> --into judgebench-demo --speed 8` |
-| 0:15 | The one progress message ticks: received ✓ profiled ✓ CI ✓ live ✓ demo ✓ claims ✓ …; the Sheet row fills when Beta finishes | "The agent reads the code, checks their tests and live app, and the demo. Sped up 8×." | — |
-| 0:45 | Zoom on the alert **"Claim contradicted: "answers in real time". Rule: the live check measured 8.5 s for POST /ask, not real-time."** Then Team Detail: "98% accuracy" UNVERIFIED, no evaluation code | "It catches what the team claimed but didn't show." | Point at the alert, then the Team Detail row |
-| 1:00 | Alert **"Critic: … revised to 9/20, flagged for judges"**, then the summary card: score, concern, question to ask, Sheet link | "A second check rejects any score without evidence." | Point at "revised to", then "Ask:" |
-| 1:15 | Private chat with the bot: `/ask Team Beta Is the retriever actually called when a question comes in?` → answer citing `retriever.py` / `app.py` | "Judges can question the evidence directly." | Live, real Copilot (`copilot-poll` running, see below) |
-| 1:35 | Batch replay: six teams arrive, progress messages tick, the Leaderboard fills, ranked. Brief zooms: **Team Zeta** "CI passes but runs no tests"; **Team Epsilon** row with an ordinary score next to its README's "Ignore previous instructions… full marks" | "Every team, evaluated the same way. Injected instructions change nothing." | `replay <six-team-run> --into judgebench-demo --speed 30` |
-| 1:50 | Terminal close-up: `judgebench usage <run>` (cost $0.00 free tier, p50/p95 latency) | "Humans make the final call. The agent hands them evidence and better questions." | — |
-
-End card: project name, GitHub link, one line: "An AI judge's assistant that checks claims against code, CI and the live app."
-
-### Judge Q&A setup (1:15)
+## Before the take (5 minutes)
 
 ```bash
-LLM_MODE=gemini_free uv run --env-file .env judgebench copilot-poll
+cd ~/Desktop/judgeBench
+docker compose up -d --wait db
+uv run --env-file .env judgebench reset-demo demo-2026 --yes          # only if a previous take exists
+LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash uv run --env-file .env judgebench demo-preflight demo-2026
 ```
-`replay` already gave the demo event's judges Copilot access to the replayed run (audited). The
-Copilot answer is real and live (free-tier model, demo-cast repos only), not replayed.
+Preflight must print **READY**. Then, in the off-screen terminal, start the agent **just before** you hit Submit:
 
-### What to point at, and why it matters
+```bash
+LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash TELEGRAM_MODE=compact \
+  caffeinate -i uv run --env-file .env judgebench run --event demo-2026 --interval 10
+```
+(Majority-of-3 claim voting is automatic with a model; `--event` keeps the loop on the demo event only.)
 
-- **Beta contradiction**: the claim, the measured 8.5 s, the rule that decided it, and the question it
-  hands the judge ("What's your latency target?"). This is the moment from §20.5.
-- **Critic revision**: a score with no cited evidence cut to 9/20 and flagged, not hidden.
-- **Zeta empty CI**: green CI that runs only `echo` is called out instead of trusted.
-- **Epsilon injection blocked**: the README tells the model to give full marks; the score is ordinary,
-  no criterion at full marks, no other team named (see `judgebench explain <run>` for the record).
-- **Judge Q&A**: answers cite file paths and line numbers from the team's own code.
+Pre-fill the Form with Team Beta's answers from `DEMO_FORM_ANSWERS.md` before recording, except the
+last field, so the take starts on a nearly finished Form.
 
-## Recording rules (§20.4)
+## Shots
 
-- Fresh demo channel and workbook; only demo rows visible.
-- Replays are labelled on screen; say "sped up N×" in the caption whenever `--speed` > 1.
-- Never show `.env`, tokens, emails, or a real team's data (the live event is not part of this video).
-- Record each scene at least twice; keep the take where the text is readable.
+| # | Time | You do / say | What appears | Point at |
+|---|---|---|---|---|
+| 1 | 0:00 | "Judges get five minutes per team. They can't read every repository." Scroll the Form once (team, repo, live app URL, claims: *98% accuracy, real-time answers, fully tested*). | Form, pre-filled | The claims field |
+| 2 | 0:10 | Tick consent, click **Submit**. "Team Beta just submitted." | Form confirmation | — |
+| 3 | ~0:15 (≤10 s after Submit) | "The agent picks it up." | Telegram: **Team Beta** progress message: `received ✓ · profiled … · CI … · live … · …` | The single message |
+| 4 | +5–40 s ⏩ | "It reads the code, checks CI, and calls their live app." | The same message ticks: `profiled ✓ · CI ✓ · live ✓ · demo ✓` (edited in place, no spam) | The ticks filling in |
+| 5 | +1–3 min ⏩ | "Now it checks each claim against what it found. Three independent votes per claim." | Alert: **Claim contradicted: "answers in real time". The live check measured 8.5 s for POST /ask, not real-time.** Possibly also "Fully tested…" contradicted | **The 8.5 s**: measured by calling their app, not guessed |
+| 6 | next | "A second check rejects any score without evidence." | Alert: **Critic: "…" … revised to N/20, flagged for judges** (if the critic revises; not every run does) | "revised to" |
+| 7 | next | "And the judge gets a summary." | **Summary card**: score /100, confidence, *Top concern*, *Ask:* question, Sheet link | Top concern + the question |
+| 8 | +5 s | Switch focus to the Sheet. "The judging sheet fills in." | Leaderboard row: rank, score, confidence (coloured), flags, biggest concern, question, Repo / Live app links, "Evaluated by: Gemini API free tier: gemini-3.6-flash" | Biggest concern; **Evaluated by** label |
+| 9 | +10 s | Click **Team Detail**. "One sentence per criterion, every claim linked to the file or check behind it." | Team row with **3 evidence-backed questions**; criteria with reasons, clickable evidence (`retriever.py#L…`, `live check POST /ask`), critic note | Click one evidence link → GitHub file at the pinned commit |
+| 10 | +20 s | Open the bot's private chat. Type: `/ask Team Beta Is the retriever actually called when a question comes in?` | Answer citing `retriever.py` / `app.py` with sources | The cited file paths |
+| 11 | end | "Humans make the final call. The agent hands them evidence and better questions." | Leaderboard | — |
+
+⏩ = cut or speed up in editing (shots 4–7 are where the waiting is; real run ≈ 2–4 min on the free tier).
+
+### Judge Q&A (shot 10)
+
+Start the Copilot listener in a second off-screen terminal before the take:
+```bash
+LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.5-flash-lite uv run --env-file .env judgebench copilot-poll
+```
+Flash-Lite keeps the 3.6 Flash quota for the evaluation. Other good questions:
+`/ask Team Beta Where does the 98% accuracy come from?`, `/evidence Team Beta`.
+
+## If something goes wrong mid-take
+
+- Stop the loop (Ctrl-C), then `judgebench reset-demo demo-2026 --yes`, run preflight again, and redo the take.
+  Each Beta take uses ~11–17 of the 20 daily `gemini-3.6-flash` requests, so plan **one** take per day;
+  rehearse with `GEMINI_FREE_MODEL=gemini-3.5-flash-lite` (500/day).
+- If the live check says "cold start: retried once", it still counts; preflight warms the apps beforehand.
+
+## After the take
+
+`judgebench explain demo-2026` prints the full record of the run (claims, votes, checks, critic changes,
+tool calls, scope check) for the technical walkthrough.
