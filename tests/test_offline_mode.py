@@ -66,5 +66,6 @@ def test_run_refuses_modes_unsafe_for_a_real_event() -> None:
 
     assert run_mode_problem("offline", False) is None
     assert "would FAIL" in (run_mode_problem("gemini_free", True) or "")
+    assert run_mode_problem("gemini_free", False, "demo-2026") is None  # one demo event only
     assert "billed" in (run_mode_problem("vertex", False) or "")
     assert run_mode_problem("vertex", True) is None

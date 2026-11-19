@@ -84,16 +84,23 @@ def cmd_run(args: argparse.Namespace) -> None:
     cfg = settings()
     if not cfg.telegram_bot_token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set (see M0_SETUP.md)")
-    if msg := run_mode_problem(cfg.llm_mode, args.billed_ok):
+    if msg := run_mode_problem(cfg.llm_mode, args.billed_ok, args.event):
         sys.exit(msg)
     factory = sessions()
     google = workspace.session(Path(cfg.google_token_file))
     deps = Deps.from_settings()
     bot = TelegramBot(cfg.telegram_bot_token, min_gap=3.0)  # ~20 posts/min per chat: Telegram's group limit
 
+    scope = select(Event).where(Event.status == "active")
+    only = None
+    if args.event:  # one event only: poll, evaluate and sync just this one (demo recordings)
+        with factory() as s0:
+            only = s0.scalars(select(Event.id).where(Event.slug == args.event)).one()
+        scope = select(Event).where(Event.id == only)
+
     def poll() -> None:
         with factory() as s:
-            for event in s.scalars(select(Event).where(Event.status == "active")).all():
+            for event in s.scalars(scope).all():
                 new = sync_event(s, event, lambda fid, since: workspace.list_responses(google, fid, since))
                 if new:
                     log.info("%s: %d new submission(s)", event.slug, len(new))
@@ -104,13 +111,13 @@ def cmd_run(args: argparse.Namespace) -> None:
                 pass
 
     def work() -> None:
-        while (sid := run_next(factory, deps)) is not None:
+        while (sid := run_next(factory, deps, only)) is not None:
             log.info("processed %s", sid)
             _step("notify", notify)  # each stage's Telegram line goes out as soon as the stage commits
 
     def publish() -> None:
         with factory() as s:
-            for event in s.scalars(select(Event).where(Event.status == "active")).all():
+            for event in s.scalars(scope).all():
                 r = sync_workbook(
                     s,
                     event,
@@ -129,11 +136,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         time.sleep(args.interval)
 
 
-def run_mode_problem(mode: str, billed_ok: bool) -> str | None:
-    """Real events: offline is the safe default. gemini_free would refuse (FAIL) every real submission;
-    vertex is billed and must be asked for explicitly."""
-    if mode == "gemini_free":
-        return "LLM_MODE=gemini_free only evaluates the demo cast; real submissions would FAIL. Use LLM_MODE=offline."
+def run_mode_problem(mode: str, billed_ok: bool, event: str | None = None) -> str | None:
+    """Real events: offline is the safe default. gemini_free would refuse (FAIL) every real submission,
+    so it needs --event (one demo event); vertex is billed and must be asked for explicitly."""
+    if mode == "gemini_free" and not event:
+        return (
+            "LLM_MODE=gemini_free only evaluates the demo cast; real submissions would FAIL. "
+            "Use LLM_MODE=offline, or --event <demo-slug> to run one demo event only."
+        )
     if mode == "vertex" and not billed_ok:
         return "LLM_MODE=vertex is billed. Re-run with --billed-ok if that is intended, or use LLM_MODE=offline."
     return None
@@ -389,6 +399,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--once", action="store_true")
     p.add_argument("--interval", type=int, default=30)
     p.add_argument("--billed-ok", action="store_true", help="allow LLM_MODE=vertex (billed)")
+    p.add_argument("--event", help="process only this event (required for LLM_MODE=gemini_free)")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("status")
     p.add_argument("slug")
