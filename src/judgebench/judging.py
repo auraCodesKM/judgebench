@@ -75,7 +75,7 @@ def clip(text: str, n: int) -> str:
 
 def sentence(text: str, n: int = 180) -> str:
     """First sentence, without vote/template prefixes."""
-    t = _PREFIX.sub("", " ".join((text or "").split()))
+    t = dejargon(_PREFIX.sub("", " ".join((text or "").split())))  # strip IDs before capitalising
     first = re.split(r"(?<=[.!?])\s", t, maxsplit=1)[0]
     return clip(first[:1].upper() + first[1:], n)
 
