@@ -67,3 +67,12 @@ def test_concern_prefers_the_strongest_negative_evidence() -> None:
 
 def test_sentence_strips_vote_and_rule_prefixes() -> None:
     assert sentence("[CONTRADICTED 3/3] Rule: measured 8.5 s. More detail here.") == "Measured 8.5 s."
+
+
+def test_internal_ids_never_reach_judges() -> None:
+    from judgebench.judging import dejargon
+
+    assert dejargon("No test functions were found (E9).") == "No test functions were found."
+    assert dejargon("CI is missing (E1, E4) and tests too.") == "CI is missing and tests too."
+    assert dejargon("C1 claims real time, but the app is slow.") == "real time, but the app is slow."
+    assert sentence("[UNVERIFIED 3/3] C3 claims 98% accuracy, but no eval exists (E2).") == "98% accuracy, but no eval exists."

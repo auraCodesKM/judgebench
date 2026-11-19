@@ -54,8 +54,17 @@ _MS = re.compile(r"-> (\d{3}) in (\d+) ms")
 _PREFIX = re.compile(r"^(?:\[[^\]]*\]\s*|Rule:\s*)+")
 
 
+_IDS = re.compile(r"\s*\((?:[ECS]\d+(?:,\s*|\s+and\s+)?)+\)|\b(?:claim )?[EC]\d+\b(?: claims?)?\s*")
+
+
+def dejargon(text: str) -> str:
+    """Drop internal references a judge can't use: "(E9)", "(E1, E4)", "C1 claims ..."."""
+    t = _IDS.sub(" ", text or "")
+    return re.sub(r"\s+([.,;:])", r"\1", " ".join(t.split()))
+
+
 def clip(text: str, n: int) -> str:
-    text = " ".join((text or "").split())
+    text = dejargon(text)
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
