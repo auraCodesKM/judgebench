@@ -8,7 +8,12 @@ gemini_free  Gemini API free tier (AI Studio key, project without billing). $0, 
 vertex       Vertex AI via ADC. Billed.
 """
 
+import asyncio
 import contextvars
+import re
+import threading
+import time
+from collections import deque
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -17,6 +22,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from google.genai.errors import ClientError
 
 from judgebench.agents.offline import OFFLINE_MODEL, FakeLlm, offline_model
 from judgebench.config import settings
@@ -70,21 +76,87 @@ def submission_repo(repo_url: str | None) -> Iterator[None]:
         _repo.reset(token)
 
 
+# Free-tier limits per model: (requests/minute, requests/day). Flash-Lite RPM measured 2026-11-19 from a 429's
+# quotaValue (GenerateRequestsPerMinutePerProjectPerModel-FreeTier = 15); 3.6 Flash: 5/min, 20/day.
+FREE_LIMITS = {
+    "gemini-3.5-flash-lite": (15, 500),
+    "gemini-3.1-flash-lite": (15, 500),
+    "gemini-3.6-flash": (5, 20),
+    "gemini-3.8-flash": (5, 20),
+}
+_DELAY = re.compile(r"'retryDelay': '(\d+(?:\.\d+)?)s'")
+
+
+class RateLimiter:
+    """Sliding 60 s window, shared by every worker thread in the process, one per model. Stays one request
+    under the real RPM so the free tier never has to refuse us. Counts every request sent and every retry."""
+
+    def __init__(self, rpm: int) -> None:
+        self.rpm, self.sent, self.retried = max(rpm, 1), 0, 0
+        self._calls: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._calls and now - self._calls[0] >= 60:
+                    self._calls.popleft()
+                if len(self._calls) < self.rpm:
+                    self._calls.append(now)
+                    self.sent += 1
+                    return
+                wait = 60 - (now - self._calls[0]) + 0.05
+            time.sleep(wait)
+
+
+_limiters: dict[str, RateLimiter] = {}
+_limiters_lock = threading.Lock()
+
+
+def limiter(model: str) -> RateLimiter:
+    with _limiters_lock:
+        if model not in _limiters:
+            rpm = settings().gemini_free_rpm or FREE_LIMITS.get(model, (10, 0))[0]
+            _limiters[model] = RateLimiter(rpm - 1)  # just under the real limit
+        return _limiters[model]
+
+
+def limiter_stats() -> dict[str, tuple[int, int]]:
+    """{model: (requests sent, of which retries after a per-minute 429)}."""
+    return {m: (lim.sent, lim.retried) for m, lim in _limiters.items()}
+
+
 class FreeGemini(Gemini):
-    """Gemini API free tier. Refuses (fails closed) unless the current submission is allow-listed."""
+    """Gemini API free tier. Refuses (fails closed) unless the current submission is allow-listed. Every
+    request goes through the model's rate limiter; automatic function calling is off (no hidden calls);
+    a per-minute 429 waits for the server's retryDelay and retries (counted); a per-day 429 is raised."""
 
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         if not free_tier_allowed(_repo.get()):
             raise FreeTierRefused(_repo.get())
-        async for r in super().generate_content_async(llm_request, stream):
-            yield r
+        llm_request.config = llm_request.config or types.GenerateContentConfig()
+        llm_request.config.automatic_function_calling = types.AutomaticFunctionCallingConfig(disable=True)
+        lim = limiter(self.model)
+        for attempt in range(5):
+            lim.acquire()
+            try:
+                async for r in super().generate_content_async(llm_request, stream):
+                    yield r
+                return
+            except ClientError as exc:
+                if exc.code != 429 or "PerDay" in str(exc) or attempt == 4:
+                    raise
+                lim.retried += 1
+                m = _DELAY.search(str(exc))
+                await asyncio.sleep(float(m.group(1)) if m else 10.0)
 
 
-# 429 = free-tier rate limit; back off exponentially (10 s .. 120 s) before the stage gives up and retries.
+# Server errors only: 429s are handled above, through the limiter, so every attempt is counted.
 FREE_RETRY = types.HttpRetryOptions(
-    attempts=6, initial_delay=10, max_delay=120, exp_base=2, jitter=0.5, http_status_codes=[429, 500, 503]
+    attempts=3, initial_delay=5, max_delay=30, exp_base=2, jitter=0.5, http_status_codes=[500, 503]
 )
 
 

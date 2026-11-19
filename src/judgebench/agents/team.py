@@ -28,7 +28,7 @@ from pydantic import ConfigDict
 from judgebench.adapters.profiler import SKIP_DIRS
 from judgebench.agents.runtime import PREAMBLE, Meter, callbacks, fence, model_name, parse_json, text_parts
 from judgebench.agents.schemas import ClaimList, ClaimVerdicts, Critique, DemoReview, RubricResult, SpecialistAssessment
-from judgebench.agents.views import ClaimView, EvidenceView, clamp_verdict, evidence_block
+from judgebench.agents.views import ClaimView, EvidenceView, claims_block, clamp_verdict, evidence_block
 from judgebench.config import settings
 
 Model = str | BaseLlm
@@ -228,7 +228,9 @@ def claim_judge(model: Model, meter: Meter, n: int) -> LlmAgent:
         )
         return text_parts(
             "Classify each claim.",
-            state["claims_block"],
+            claims_block([c for c in state["_claims"] if c.id in set(state.get("vote_claims", []))])
+            if state.get("vote_claims")
+            else state["claims_block"],
             evidence_block(state["_evidence"]),
             fence("investigator_observations", seen or "(none)"),
         )
@@ -328,9 +330,17 @@ class Orchestrator(BaseAgent):
                     yield event
         async for event in by_name["claim_investigator"].run_async(ctx):
             yield event
-        for judge in sorted(n for n in by_name if n.startswith("claim_judge_")):
-            async for event in by_name[judge].run_async(ctx):
-                yield event
+        judges = sorted(n for n in by_name if n.startswith("claim_judge_"))
+        contested = contested_claims(ctx.session.state) if judges else []
+        if contested:  # only claims whose evidence disagrees get the extra votes; the rest need one call
+            yield Event(
+                author=self.name,
+                invocation_id=ctx.invocation_id,
+                actions=EventActions(state_delta={"vote_claims": contested}),
+            )
+            for judge in judges:
+                async for event in by_name[judge].run_async(ctx):
+                    yield event
         verdicts = clamped_verdicts(ctx.session.state)
         yield Event(
             author=self.name,
@@ -341,6 +351,21 @@ class Orchestrator(BaseAgent):
         )
         async for event in by_name["rubric_evaluator"].run_async(ctx):
             yield event
+
+
+_SUPPORT, _AGAINST = {"OBSERVED", "VERIFIED"}, {"MISSING", "CONTRADICTED"}
+
+
+def contested_claims(state: Any) -> list[str]:
+    """Claims worth more votes: the investigator called them CONTRADICTED, or the evidence it cited
+    points both ways. Unanimous evidence needs no second opinion."""
+    evidence = {e.id: e for e in state["_evidence"]}
+    out = []
+    for cid, v in _clamped_vote(state, "verdicts_raw").items():
+        statuses = {evidence[e].status for e in v["evidence_ids"] if e in evidence}
+        if v["status"] == "CONTRADICTED" or (statuses & _SUPPORT and statuses & _AGAINST):
+            out.append(cid)
+    return out
 
 
 def _clamped_vote(state: Any, key: str) -> dict[str, dict[str, Any]]:
@@ -368,10 +393,13 @@ def clamped_verdicts(state: Any) -> list[dict[str, Any]]:
     on the verdict ("CONTRADICTED 3/3") so judges see how sure the panel was."""
     claims: list[ClaimView] = state["_claims"]
     data = state.to_dict() if hasattr(state, "to_dict") else dict(state)
-    keys = ["verdicts_raw", *sorted(k for k in data if k.startswith("verdicts_raw_"))]
-    votes = [_clamped_vote(state, k) for k in keys]
+    judge_keys = sorted(k for k in data if k.startswith("verdicts_raw_"))
+    contested = set(data.get("vote_claims", [])) if "vote_claims" in data else None  # None: all were voted on
+    by_key = {k: _clamped_vote(state, k) for k in ["verdicts_raw", *judge_keys]}
     out = []
     for c in claims:
+        voted = judge_keys if contested is None or c.id in contested else []
+        votes = [by_key["verdicts_raw"], *(by_key[k] for k in voted)]
         ballots = [v[c.id] for v in votes if c.id in v]
         statuses = [b["status"] for b in ballots] + ["UNVERIFIED"] * (len(votes) - len(ballots))
         split = Counter(statuses)

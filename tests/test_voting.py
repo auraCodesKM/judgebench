@@ -96,3 +96,16 @@ def test_offline_and_single_vote_runs_add_no_judges(session_factory: sessionmake
     drive(session_factory, deps(repos.BETA_RAG_UNWIRED, llm))  # votes default 1
     assert not any(s.agent.startswith("claim_judge") for s in llm.seen)
     assert all(not c.rationale.startswith("[") for c in session.query(m.Claim).filter_by(submission_id=sub.id))
+
+
+def test_unanimous_evidence_needs_one_vote(session_factory: sessionmaker[Session], session: Session) -> None:
+    sub, seen = run(
+        session_factory,
+        session,
+        claim_investigator=investigator("UNVERIFIED"),  # not contradicted; cites one item (not mixed)
+        claim_judge_2=verdicts({"*": "CONTRADICTED"}),
+        claim_judge_3=verdicts({"*": "CONTRADICTED"}),
+    )
+    assert not any(s.agent.startswith("claim_judge") for s in seen)  # judges never called
+    claims = session.query(m.Claim).filter_by(submission_id=sub.id).all()
+    assert claims and all(c.verification_status == "UNVERIFIED" and not c.rationale.startswith("[") for c in claims)
