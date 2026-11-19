@@ -29,9 +29,10 @@ from judgebench.adapters.profiler import SKIP_DIRS
 from judgebench.agents.runtime import PREAMBLE, Meter, callbacks, fence, model_name, parse_json, text_parts
 from judgebench.agents.schemas import ClaimList, ClaimVerdicts, Critique, DemoReview, RubricResult, SpecialistAssessment
 from judgebench.agents.views import ClaimView, EvidenceView, clamp_verdict, evidence_block
+from judgebench.config import settings
 
 Model = str | BaseLlm
-INVESTIGATOR_TOOL_BUDGET = 8
+INVESTIGATOR_TOOL_BUDGET = settings().investigator_tool_budget  # 8; 6 for tight free quotas (demo takes)
 VERDICT_CONFIG = types.GenerateContentConfig(temperature=0)  # claim verdicts: no sampling noise
 VERDICT_RULES = (
     "Statuses: VERIFIED (a behavioural source - CI that ran real tests or a successful live check - AND matching "

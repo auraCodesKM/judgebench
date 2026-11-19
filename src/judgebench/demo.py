@@ -23,7 +23,7 @@ FREE_DAILY = {
     "gemini-3.5-flash-lite": 500,
     "gemini-3.1-flash-lite": 500,
 }
-CALLS_PER_TEAM = 14  # measured on the demo cast with majority-of-3 voting (11-17); keep headroom
+CALLS_PER_TEAM = 17  # measured worst case per team (budget 8, majority-of-3); retried requests also count
 
 
 def require_demo(event: Event) -> None:

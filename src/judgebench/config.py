@@ -32,6 +32,7 @@ class Settings:
     llm_mode: str  # offline (default, mock, $0) | gemini_free (AI Studio free tier, demo cast only) | vertex (billed)
     gemini_api_key: str | None
     gemini_free_model: str
+    investigator_tool_budget: int  # ReAct tool calls per submission (default 8)
     telegram_mode: str  # compact (default: one edited message per team + alerts) | stages (debug)  # LLM_MODE=gemini_free uses this for every agent (see DECISIONS.md)
 
 
@@ -59,6 +60,7 @@ def settings() -> Settings:
         llm_mode=_choice(env("LLM_MODE", "offline"), {"offline", "gemini_free", "vertex"}, "LLM_MODE"),
         gemini_api_key=env("GEMINI_API_KEY") or None,
         gemini_free_model=env("GEMINI_FREE_MODEL", "gemini-3.5-flash-lite"),
+        investigator_tool_budget=int(env("INVESTIGATOR_TOOL_BUDGET", "8")),
         telegram_mode=_choice(env("TELEGRAM_MODE", "compact"), {"compact", "stages"}, "TELEGRAM_MODE"),
     )
 
