@@ -121,13 +121,15 @@ def lower_first(text: str) -> str:
 
 def plain_claim(text: str, n: int = 8) -> str:
     """A claim as a judge would say it: short, no markdown, no trailing full stop."""
-    t = re.sub(r"[*_`#]", "", text or "").strip().rstrip(".")
+    t = re.sub(r"\s*\([^)]*\)?", "", re.sub(r"[*_`#]", "", text or "")).strip().rstrip(".:;")
     return words(t, n)
 
 
 def contradiction(claim: Any, team: str | None = None) -> str:
     """'they say "answers in real time", but their app took 8.6 s when I tried it.'"""
     why = sentence(claim.rationale or "", 160).rstrip(".")
+    if " but " in f" {why.lower()} ":  # the reason already turns on "but": its own sentence reads better
+        return f'they say "{plain_claim(claim.text)}". {why}.'
     return f'they say "{plain_claim(claim.text)}", but {lower_first(why)}.'
 
 

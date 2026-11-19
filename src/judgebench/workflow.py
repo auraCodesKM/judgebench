@@ -132,6 +132,7 @@ FAILURE_TEXT = {  # what a judge needs to know, in plain words
     "model_quota_exhausted": "the AI model's daily quota ran out",
     "free_tier_repo_not_allowed": "this repo isn't on the free-tier demo list",
     "internal_error": "something went wrong on my side",
+    "model_unavailable": "the AI model was overloaded (Google's side)",
     "worker_lease_expired": "the worker stopped mid-way",
     "probe_unavailable": "the live-app checker was unavailable",
     "evaluation_missing": "the evaluation went missing",

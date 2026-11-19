@@ -23,7 +23,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 
 from judgebench.agents.offline import OFFLINE_MODEL, FakeLlm, offline_model
 from judgebench.config import settings
@@ -159,24 +159,26 @@ class FreeGemini(Gemini):
         llm_request.config = llm_request.config or types.GenerateContentConfig()
         llm_request.config.automatic_function_calling = types.AutomaticFunctionCallingConfig(disable=True)
         lim = limiter(self.model)
-        for attempt in range(5):
+        for attempt in range(6):
             lim.acquire(_priority.get())
             try:
                 async for r in super().generate_content_async(llm_request, stream):
                     yield r
                 return
-            except ClientError as exc:
-                if exc.code != 429 or "PerDay" in str(exc) or attempt == 4:
+            except ClientError as exc:  # 429 per minute: wait as told; per day: give up honestly
+                if exc.code != 429 or "PerDay" in str(exc) or attempt == 5:
                     raise
                 lim.retried += 1
                 m = _DELAY.search(str(exc))
                 await asyncio.sleep(float(m.group(1)) if m else 10.0)
+            except ServerError:  # 500/503 "high demand": back off and try again
+                if attempt == 5:
+                    raise
+                lim.retried += 1
+                await asyncio.sleep(min(4.0 * 2**attempt, 30.0))
 
 
-# Server errors only: 429s are handled above, through the limiter, so every attempt is counted.
-FREE_RETRY = types.HttpRetryOptions(
-    attempts=3, initial_delay=5, max_delay=30, exp_base=2, jitter=0.5, http_status_codes=[500, 503]
-)
+FREE_RETRY = types.HttpRetryOptions(attempts=1)  # every retry goes through generate_content_async above (counted)
 
 
 def configured(name: str, free_model: str | None = None) -> "str | FakeLlm | FreeGemini":

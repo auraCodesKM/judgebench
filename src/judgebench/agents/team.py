@@ -276,8 +276,8 @@ def rubric_evaluator(model: Model, meter: Meter) -> LlmAgent:
         "each under 20 words, friendly and specific to this "
         "team: name the claim or the finding that prompted it in plain words (never paste evidence lines or keys), "
         "use only numbers that appear in the evidence, and "
-        'cite its evidence ID (shape: "Your README claims <claim>; <check> found <what the evidence says>. <question>?"). '
-        "Never generic questions.",
+        "cite its evidence ID. Sound like a friendly judge, e.g. \"You say it's fully tested, but CI runs no tests. "
+        'What did you actually test?". Never generic questions.',
         **callbacks(meter, model_name(model), inject),
     )
 

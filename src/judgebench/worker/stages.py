@@ -790,8 +790,10 @@ def _questions(session: Session, sub: Submission, raw: list[Any], by_id: dict[st
         session.scalars(select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt))
     )
     claims = list(session.scalars(select(Claim).where(Claim.submission_id == sub.id)))
-    out += [render_question(q, src, template=True) for q, src in template_questions(claims, evidence, sub.deployed_url)]
-    return out[:3]
+    templates = [
+        render_question(q, src, template=True) for q, src in template_questions(claims, evidence, sub.deployed_url)
+    ]
+    return (templates + out)[:3]  # plain, deterministic questions first; the model's grounded ones fill in
 
 
 # --- runner ----------------------------------------------------------------------------
@@ -870,7 +872,9 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                 session.commit()
             except Exception as exc:
                 session.rollback()
-                if getattr(exc, "code", None) == 429:  # model quota (e.g. the free tier's requests per day)
+                if getattr(exc, "code", 0) in (500, 503):  # the model was overloaded even after retries
+                    record_failure(session, sid, "model_unavailable", retryable=True, detail=str(exc)[:200])
+                elif getattr(exc, "code", None) == 429:  # model quota (e.g. the free tier's requests per day)
                     quota = re.search(r"'quotaId': '([^']+)'", str(exc))
                     delay = re.search(r"'retryDelay': '([^']+)'", str(exc))
                     detail = (
