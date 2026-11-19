@@ -8,6 +8,7 @@
   usage <slug>              tokens, cost, latency per submission and agent
   reevaluate <slug> <team>  re-run a team's latest submission as the next version
   team-codes <slug> --count N   generate codes for registered teams (printable list)
+  replay <run> --into <demo> [--speed X]   replay a stored run into a demo channel + workbook
   purge <slug> --team T     remove a team completely (dry runs, test submissions)
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
@@ -26,7 +27,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from judgebench.config import settings
-from judgebench.db.models import Event, Submission, Team
+from judgebench.db.models import Event, EventIntegration, Submission, Team
 from judgebench.db.session import sessions
 
 log = logging.getLogger("cli")
@@ -200,6 +201,44 @@ def cmd_team_codes(args: argparse.Namespace) -> None:
     print(f"\nRun `judgebench setup {path}` to activate them. Each code binds to the first team name it is used with.")
 
 
+def cmd_replay(args: argparse.Namespace) -> None:
+    from judgebench.google import workspace
+    from judgebench.google.layout import apply_layout
+    from judgebench.google.sheets_sync import write_rows
+    from judgebench.replay import replay, run_label
+    from judgebench.telegram.notify import TelegramBot
+
+    cfg = settings()
+    if not cfg.telegram_bot_token:
+        sys.exit("TELEGRAM_BOT_TOKEN is not set")
+    google, bot = workspace.session(Path(cfg.google_token_file)), TelegramBot(cfg.telegram_bot_token)
+    with sessions()() as s:
+        source = s.scalars(select(Event).where(Event.slug == args.run)).one()
+        demo = s.scalars(select(Event).where(Event.slug == args.into)).one()
+        if demo.id == source.id or s.scalar(select(Submission.id).where(Submission.event_id == demo.id).limit(1)):
+            sys.exit(f"{args.into} must be an empty demo event (it has submissions, or is the run itself)")
+        book = s.scalars(
+            select(EventIntegration).where(
+                EventIntegration.event_id == demo.id, EventIntegration.provider == "google_sheets"
+            )
+        ).one()
+        sid, chat = book.external_ids["spreadsheet_id"], demo.telegram_chat_id
+        if not chat:
+            sys.exit(f"{args.into} has no telegram_chat_id")
+        label = run_label(s, source)
+        apply_layout(google, sid)
+        workspace.set_title(google, sid, f"{demo.name}: {label}")
+        write_rows(lambda tab, rows: workspace.write_tab(google, sid, tab, rows), {})  # start empty
+        r = replay(
+            s,
+            source,
+            lambda text: (bot.send(chat, text), None)[1],
+            lambda tabs: write_rows(lambda tab, rows: workspace.write_tab(google, sid, tab, rows), tabs),
+            speed=args.speed,
+        )
+    print(f"{r.label}: {r.messages} messages, {r.teams} team(s) replayed")
+
+
 def cmd_purge(args: argparse.Namespace) -> None:
     from judgebench.admin import purge_team
     from judgebench.telegram.notify import TelegramBot
@@ -321,6 +360,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--count", type=int, required=True)
     p.add_argument("--event-file")
     p.set_defaults(fn=cmd_team_codes)
+    p = sub.add_parser("replay")
+    p.add_argument("run", help="slug of the stored run (e.g. a bench-... event)")
+    p.add_argument("--into", required=True, help="an empty demo event (own channel + workbook)")
+    p.add_argument("--speed", type=float, default=10.0)
+    p.set_defaults(fn=cmd_replay)
     p = sub.add_parser("purge")
     p.add_argument("slug")
     p.add_argument("--team", action="append", required=True)

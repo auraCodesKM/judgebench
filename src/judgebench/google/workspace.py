@@ -325,6 +325,15 @@ def padded(header: list[str]) -> list[str]:
     return [*header, *[""] * (26 - len(header))]
 
 
+def set_title(s: AuthorizedSession, spreadsheet_id: str, title: str) -> None:
+    _call(
+        s,
+        "POST",
+        f"{SHEETS}/{spreadsheet_id}:batchUpdate",
+        json={"requests": [{"updateSpreadsheetProperties": {"properties": {"title": title[:250]}, "fields": "title"}}]},
+    )
+
+
 def sheet_ids(s: AuthorizedSession, spreadsheet_id: str) -> dict[str, int]:
     meta = _call(s, "GET", f"{SHEETS}/{spreadsheet_id}", params={"fields": "sheets(properties(sheetId,title))"})
     return {sh["properties"]["title"]: sh["properties"]["sheetId"] for sh in meta.get("sheets", [])}

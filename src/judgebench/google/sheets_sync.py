@@ -203,14 +203,19 @@ def _concern(sub: Submission, ev: Evaluation | None, scores: list[CriterionScore
 CONFIDENCE = {"high": "high", "medium": "med", "low": "low"}
 
 
-def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, list[Cell]]]:
-    """Every machine tab as {row key: cells}. Judge-facing order: by score, best first."""
+def build_tabs(
+    session: Session, event_id: uuid.UUID, only: set[uuid.UUID] | None = None
+) -> dict[str, dict[str, list[Cell]]]:
+    """Every machine tab as {row key: cells}. Judge-facing order: by score, best first.
+    `only`: restrict to these submissions (replays reveal teams one by one)."""
     event = session.get_one(Event, event_id)
     rubric, judges = _rubric(event)
     names = {c.id: c.name for c in rubric}
     tabs: dict[str, dict[str, list[Cell]]] = {t: {} for t in TABS if t not in JUDGE_EDITABLE}
     teams = []
     for team, sub in _latest_subs(session, event_id):
+        if only is not None and sub.id not in only:
+            continue
         ev = _ready_eval(session, sub)
         scores = (
             list(
@@ -325,6 +330,8 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
         .order_by(AuditEvent.created_at.desc())
         .limit(500)
     ):
+        if only is not None and a.submission_id not in only:
+            continue
         tabs["Audit Log"][f"audit:{a.id}"] = [
             a.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             subs.get(a.submission_id, "") if a.submission_id else str((a.detail or {}).get("team", ""))[:200],
@@ -332,6 +339,15 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
             audit_text(a),
         ]
     return tabs
+
+
+def write_rows(write: Callable[[str, list[list[Cell]]], None], tabs: dict[str, dict[str, list[Cell]]]) -> None:
+    """Write whole machine tabs (no merge): for fresh workbooks such as replays, never the judging one."""
+    for tab, header in TABS.items():
+        if tab in JUDGE_EDITABLE:
+            continue
+        rows = tabs.get(tab, {})
+        write(tab, [[*r, *[""] * (len(header) - 1 - len(r)), key] for key, r in rows.items()])
 
 
 def _categories(session: Session, sub: Submission) -> dict[str, Any]:
