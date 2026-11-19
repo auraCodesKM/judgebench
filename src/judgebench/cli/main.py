@@ -7,6 +7,7 @@
   doctor                    check every credential and dependency
   usage <slug>              tokens, cost, latency per submission and agent
   reevaluate <slug> <team>  re-run a team's latest submission as the next version
+  team-codes <slug> --count N   generate codes for registered teams (printable list)
   purge <slug> --team T     remove a team completely (dry runs, test submissions)
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
@@ -185,6 +186,20 @@ def cmd_reevaluate(args: argparse.Namespace) -> None:
         print(f"{args.team}: v{sub.version} queued (same answers, same pinned commit); `run` picks it up")
 
 
+def cmd_team_codes(args: argparse.Namespace) -> None:
+    from judgebench.event_config import load_event_config
+    from judgebench.team_codes import add_codes
+
+    path = Path(args.event_file or f"events/{args.slug}.yaml")
+    cfg = load_event_config(path)
+    codes = add_codes(path, args.count, cfg.team_codes)
+    load_event_config(path)  # the file must still validate
+    print(f"{cfg.name}: {len(codes)} new team code(s), saved to {path} (gitignored)\n")
+    for n, c in enumerate(codes, len(cfg.team_codes) + 1):
+        print(f"  {n:>3}.  {c}      Team: ______________________")
+    print(f"\nRun `judgebench setup {path}` to activate them. Each code binds to the first team name it is used with.")
+
+
 def cmd_purge(args: argparse.Namespace) -> None:
     from judgebench.admin import purge_team
     from judgebench.telegram.notify import TelegramBot
@@ -301,6 +316,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("slug")
     p.add_argument("team")
     p.set_defaults(fn=cmd_reevaluate)
+    p = sub.add_parser("team-codes")
+    p.add_argument("slug")
+    p.add_argument("--count", type=int, required=True)
+    p.add_argument("--event-file")
+    p.set_defaults(fn=cmd_team_codes)
     p = sub.add_parser("purge")
     p.add_argument("slug")
     p.add_argument("--team", action="append", required=True)

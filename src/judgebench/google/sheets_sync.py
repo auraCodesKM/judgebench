@@ -318,13 +318,16 @@ def build_tabs(session: Session, event_id: uuid.UUID) -> dict[str, dict[str, lis
     subs = {s.id: t for t, s, *_ in teams}
     for a in session.scalars(
         select(AuditEvent)
-        .where(AuditEvent.event_id == event_id, AuditEvent.action.like("state:%"))
+        .where(
+            AuditEvent.event_id == event_id,
+            AuditEvent.action.like("state:%") | (AuditEvent.action == "submission_rejected"),
+        )
         .order_by(AuditEvent.created_at.desc())
         .limit(500)
     ):
         tabs["Audit Log"][f"audit:{a.id}"] = [
             a.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            subs.get(a.submission_id, "") if a.submission_id else "",
+            subs.get(a.submission_id, "") if a.submission_id else str((a.detail or {}).get("team", ""))[:200],
             a.action,
             audit_text(a),
         ]
@@ -346,6 +349,8 @@ def _categories(session: Session, sub: Submission) -> dict[str, Any]:
 def audit_text(a: AuditEvent) -> str:
     """Readable Detail column. Raw IDs (e.g. the Form response ID) stay in the DB, not the Sheet."""
     d, state = a.detail or {}, a.action.removeprefix("state:")
+    if a.action == "submission_rejected":
+        return f"Rejected, not evaluated: {d.get('reason', '?')}"
     if state == "RECEIVED" and d.get("rerun_of"):
         return f"Re-evaluation requested by the organiser (v{d.get('version', '?')})"
     if state == "RECEIVED":

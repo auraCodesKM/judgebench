@@ -1,5 +1,6 @@
 """Event config file (`events/<slug>.yaml`, §6.1) and the default rubric (§8)."""
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,18 @@ class EventConfig(BaseModel):
     rubric_version: str = DEFAULT_RUBRIC_VERSION
     telegram_chat_id: int
     judges: list[Judge] = []
+    # Codes handed to registered teams (`judgebench team-codes`). Empty: no code check (e.g. benchmarks).
+    team_codes: list[str] = []
+
+    @field_validator("team_codes")
+    @classmethod
+    def _codes(cls, v: list[str]) -> list[str]:
+        codes = [c.strip().upper() for c in v]
+        if len(set(codes)) != len(codes):
+            raise ValueError("team_codes must be unique")
+        if any(not re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}", c) for c in codes):
+            raise ValueError("team codes look like ABCD-2345")
+        return codes
 
     @field_validator("deadline")
     @classmethod

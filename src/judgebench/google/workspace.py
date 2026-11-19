@@ -67,11 +67,14 @@ class Question:
 CATEGORIES = ("Traditional ML", "LLM / RAG", "Agentic AI", "Computer vision / multimodal", "AI infrastructure")
 CONSENT = (
     "I consent to automated analysis of our submitted artefacts, a small number of live "
-    "requests to our deployed app, and anonymised use in benchmark results."
+    "requests to our deployed app, and anonymised use in benchmark results. "
+    "Submissions may later be re-scored by Google AI models (Gemini) under the organisers' account; "
+    "your code is never executed. Deleted 90 days after the event, except anonymised results."
 )
 
 QUESTIONS: tuple[Question, ...] = (
     Question("team_name", "Team name", required=True),
+    Question("team_code", "Team code", required=True, help="The code the organisers gave your team, e.g. ABCD-2345"),
     Question("team_members", "Team members", required=True, paragraph=True),
     Question("project_title", "Project title", required=True),
     Question("problem_statement", "Problem statement", required=True, paragraph=True),
@@ -147,6 +150,53 @@ def create_form(s: AuthorizedSession, title: str) -> dict[str, Any]:
         "published": published,
         "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit",
     }
+
+
+def update_form(s: AuthorizedSession, form_id: str, questions: dict[str, str]) -> dict[str, str]:
+    """Bring a live Form up to QUESTIONS without recreating it (responses and links stay valid):
+    missing questions are inserted in order, changed choice texts (the consent line) are updated.
+    Returns the new {question_id: key} map."""
+    form = _call(s, "GET", f"{FORMS}/{form_id}")
+    items = form.get("items", [])
+    key_at = {
+        questions[it["questionItem"]["question"]["questionId"]]: (n, it)
+        for n, it in enumerate(items)
+        if it.get("questionItem", {}).get("question", {}).get("questionId") in questions
+    }
+    requests: list[dict[str, Any]] = []
+    for q in QUESTIONS:  # 1) updates, at the items' current positions
+        if q.key not in key_at or not q.choices:
+            continue
+        n, it = key_at[q.key]
+        have = [o.get("value") for o in it["questionItem"]["question"].get("choiceQuestion", {}).get("options", [])]
+        if have != list(q.choices):
+            item = _item(q) | {"itemId": it["itemId"]}
+            item["questionItem"]["question"]["questionId"] = it["questionItem"]["question"]["questionId"]
+            requests.append(
+                {
+                    "updateItem": {
+                        "item": item,
+                        "location": {"index": n},
+                        "updateMask": "title,description,questionItem.question.choiceQuestion",
+                    }
+                }
+            )
+    inserted: list[tuple[int, str]] = []
+    for i, q in enumerate(QUESTIONS):  # 2) inserts, ascending, at their position in QUESTIONS order
+        if q.key not in key_at:
+            requests.append(
+                {"createItem": {"item": _item(q), "location": {"index": min(i, len(items) + len(inserted))}}}
+            )
+            inserted.append((len(requests) - 1, q.key))
+    if form.get("info", {}).get("description") != FORM_NOTICE:
+        requests.append({"updateFormInfo": {"info": {"description": FORM_NOTICE}, "updateMask": "description"}})
+    if not requests:
+        return dict(questions)
+    replies = _call(s, "POST", f"{FORMS}/{form_id}:batchUpdate", json={"requests": requests})["replies"]
+    out = dict(questions)
+    for idx, key in inserted:
+        out[replies[idx]["createItem"]["questionId"][0]] = key
+    return out
 
 
 def list_responses(s: AuthorizedSession, form_id: str, since: str | None) -> list[dict[str, Any]]:

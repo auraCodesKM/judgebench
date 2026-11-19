@@ -6,6 +6,7 @@ the cursor. Each new submission starts in RECEIVED with its audit row and Telegr
 written in the same transaction.
 """
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -53,6 +54,64 @@ def _team(session: Session, event: Event, name: str) -> Team:
     return session.scalars(select(Team).where(Team.event_id == event.id, Team.name_key == key)).one()
 
 
+def _code_hash(event: Event, code: str) -> str:
+    return hashlib.sha256(f"{event.id}:{code}".encode()).hexdigest()
+
+
+def _code_problem(session: Session, event: Event, name: str, code: str) -> str | None:
+    """None if this (team name, code) may submit. Codes off (no team_codes in the event file): always None."""
+    codes = event.config.get("team_codes") or []
+    if not codes:
+        return None
+    if code not in codes:
+        return "missing or unknown team code"
+    h = _code_hash(event, code)
+    key = " ".join(name.casefold().split())
+    owner = session.scalars(select(Team).where(Team.event_id == event.id, Team.code_hash == h)).first()
+    if owner is not None and owner.name_key != key:
+        return "this team code belongs to another team"
+    named = session.scalars(select(Team).where(Team.event_id == event.id, Team.name_key == key)).first()
+    if named is not None and named.code_hash is not None and named.code_hash != h:
+        return "team code does not match this team"
+    return None
+
+
+def _rejected_before(session: Session, event: Event, response_id: str) -> bool:
+    return (
+        session.scalar(
+            select(AuditEvent.id).where(
+                AuditEvent.event_id == event.id,
+                AuditEvent.action == "submission_rejected",
+                AuditEvent.target == response_id,
+            )
+        )
+        is not None
+    )
+
+
+def _reject(session: Session, event: Event, response_id: str, name: str, reason: str) -> None:
+    """Not evaluated. Recorded once (audit, keyed by response ID) and announced in Telegram."""
+    session.add(
+        AuditEvent(
+            tenant_id=event.tenant_id,
+            event_id=event.id,
+            actor="system:ingest",
+            action="submission_rejected",
+            target=response_id,
+            detail={"team": name, "reason": reason},
+        )
+    )
+    session.add(
+        Notification(
+            tenant_id=event.tenant_id,
+            event_id=event.id,
+            stage="REJECTED",
+            text=f'Rejected a submission for "{name}": {reason}. Not evaluated.',
+        )
+    )
+    session.flush()
+
+
 def ingest_responses(
     session: Session, event: Event, raw_responses: list[dict[str, Any]], questions: dict[str, str]
 ) -> list[uuid.UUID]:
@@ -65,10 +124,17 @@ def ingest_responses(
                 Submission.event_id == event.id, Submission.form_response_id == parsed.response_id
             )
         )
-        if exists:
+        if exists or _rejected_before(session, event, parsed.response_id):
             continue
         a = parsed.answers
-        team = _team(session, event, (a.get("team_name") or "Unnamed team")[:200])
+        code = str(a.pop("team_code", "") or "").strip().upper()  # never stored; only its hash on the team
+        name = (a.get("team_name") or "Unnamed team")[:200]
+        if reason := _code_problem(session, event, name, code):
+            _reject(session, event, parsed.response_id, name, reason)
+            continue
+        team = _team(session, event, name)
+        if event.config.get("team_codes") and team.code_hash is None:
+            team.code_hash = _code_hash(event, code)  # first valid submission binds the code to this team
         version = (session.scalar(select(func.max(Submission.version)).where(Submission.team_id == team.id)) or 0) + 1
         sub_id = uuid.uuid4()
         with tracing.span(

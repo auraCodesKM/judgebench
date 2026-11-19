@@ -80,6 +80,11 @@ def setup_google(session: Session, event: Event, cfg: EventConfig, g: Authorized
         )
         session.add(form)
         session.commit()
+    else:  # existing Form: apply question/consent changes in place (responses and links stay valid)
+        qmap = workspace.update_form(g, form.external_ids["form_id"], form.external_ids["questions"])
+        if qmap != form.external_ids["questions"]:
+            form.external_ids = {**form.external_ids, "questions": qmap}
+            session.commit()
     book = _integration(session, event, "google_sheets")
     if book is None:
         ids = workspace.create_judging_workbook(g, f"{cfg.name}: judging")

@@ -157,6 +157,7 @@ class Team(EventOwned, Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column()
     name: Mapped[str] = mapped_column(String(200))
     name_key: Mapped[str] = mapped_column(String(200))  # casefolded, for dedupe
+    code_hash: Mapped[str | None] = mapped_column(String(64))  # sha256 of the bound team code (never the code)
     created_at: Mapped[datetime] = _created()
 
 
