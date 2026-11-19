@@ -25,6 +25,7 @@ from judgebench.db.models import Event, Notification, Submission, Team, utcnow
 from judgebench.telegram.compact import PROGRESS_STAGES, classify, progress_text
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
+log = logging.getLogger(__name__)
 MAX_TEXT = 4000
 
 
@@ -49,6 +50,7 @@ class TelegramBot:
 
     def edit(self, chat_id: int, message_id: int, text: str) -> None:
         self._space(chat_id)
+        log.info("telegram edit #%s: %s", message_id, text.replace("\n", " / "))
         try:
             resp = self._http.post(
                 f"https://api.telegram.org/bot{self._token}/editMessageText",
@@ -67,6 +69,7 @@ class TelegramBot:
 
     def send(self, chat_id: int, text: str) -> int:
         self._space(chat_id)
+        log.info("telegram send: %s", text.replace("\n", " / "))
         try:
             resp = self._http.post(
                 f"https://api.telegram.org/bot{self._token}/sendMessage",
