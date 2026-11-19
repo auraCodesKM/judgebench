@@ -445,7 +445,8 @@ class Notification(EventOwned, Base):
     submission_id: Mapped[uuid.UUID | None] = mapped_column()
     stage: Mapped[str] = mapped_column(String(40))
     text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = _created()
+    # Python-side: when the line is written (end of a stage), not when its transaction began (now()).
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
     sent_at: Mapped[datetime | None] = mapped_column(index=True)
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger)
     attempts: Mapped[int] = mapped_column(default=0)
