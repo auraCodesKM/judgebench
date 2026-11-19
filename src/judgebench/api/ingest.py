@@ -217,7 +217,7 @@ def sync_event(session: Session, event: Event, fetch: Any) -> list[uuid.UUID]:
     created = ingest_responses(session, event, raw, integ.external_ids["questions"])
     stamps = [r.get("lastSubmittedTime") or r["createTime"] for r in raw]
     if stamps:
-        integ.cursor = {"since": max([since or "", *stamps])}
+        integ.cursor = {**integ.cursor, "since": max([since or "", *stamps])}  # keep other keys (reset_at)
     session.commit()
     return created
 

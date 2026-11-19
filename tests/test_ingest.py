@@ -121,6 +121,7 @@ def test_sync_event_advances_cursor_and_tolerates_overlap(session: Session, even
             provider="google_forms",
             external_ids={"form_id": "F", "questions": QUESTIONS},
             status="ready",
+            cursor={"reset_at": "2026-11-22T09:00:00Z"},
         )
     )
     session.commit()
@@ -136,3 +137,5 @@ def test_sync_event_advances_cursor_and_tolerates_overlap(session: Session, even
     assert len(sync_event(session, event, fetch)) == 1
     assert calls == [None, "2026-11-22T10:00:00Z"]
     assert session.query(m.Submission).count() == 2
+    forms = session.query(m.EventIntegration).filter_by(provider="google_forms").one()
+    assert forms.cursor["reset_at"] == "2026-11-22T09:00:00Z"  # other cursor keys survive ingestion
