@@ -60,7 +60,7 @@ def validate_rubric(
                 value,
                 found.rationale,
                 [e for e in found.evidence_ids if e in evidence],
-                found.confidence,
+                evidence_confidence(found.evidence_ids, evidence),  # computed, never the model's self-report
                 found.missing_evidence,
                 found.suggested_question,
                 pre_critic=value,
@@ -117,15 +117,35 @@ def apply_critique(scores: list[Score], raw: Any) -> list[str]:
     return messages
 
 
-def overall_confidence(scores: list[Score], flags: list[str]) -> str:
-    """Derived from the criteria: the max-weighted mean of criterion confidence (>=0.7 high, >=0.4
-    medium, else low). Flagged scores and evaluation flags can only lower it (any: at most medium; 3+: low)."""
+# How much a cited evidence item supports a judgement. A contradiction is as informative as an observation.
+STATUS_WEIGHT = {"VERIFIED": 1.0, "OBSERVED": 0.7, "CONTRADICTED": 0.7, "INFERRED": 0.4, "MISSING": 0.3}
+
+
+def evidence_confidence(ids: list[str], evidence: dict[str, EvidenceView]) -> float:
+    """Criterion confidence from the evidence it cites, in code: mean status weight, +0.2 if a cited item
+    is behaviour-verified (CI that ran real tests, a passing live check), +0.1 for two or more independent
+    source types. Nothing cited: 0.1. The model's own confidence is ignored (it is not calibrated)."""
+    cited = [evidence[i] for i in dict.fromkeys(ids) if i in evidence]
+    if not cited:
+        return 0.1
+    conf = sum(STATUS_WEIGHT.get(e.status, 0.3) for e in cited) / len(cited)
+    if any(e.behavioural and e.status == "VERIFIED" for e in cited):
+        conf += 0.2
+    if len({e.source_type for e in cited}) >= 2:
+        conf += 0.1
+    return round(min(conf, 1.0), 2)
+
+
+def overall_confidence(scores: list[Score], flags: list[str], behavioural: bool = True) -> str:
+    """From the (evidence-computed) criteria: the max-weighted mean (>=0.7 high, >=0.4 medium, else low).
+    Without any behaviour-verified evidence in the submission it is at most medium; flagged scores and
+    evaluation flags only lower it (any: at most medium; 3+: low)."""
     weight = sum(s.max for s in scores) or 1.0
     mean = sum(s.confidence * s.max for s in scores) / weight
     level = 2 if mean >= 0.7 else 1 if mean >= 0.4 else 0
     flagged = sum(s.flagged for s in scores) + len(flags)
     if flagged >= 3:
         level = 0
-    elif flagged:
+    elif flagged or not behavioural:
         level = min(level, 1)
     return ("low", "medium", "high")[level]
