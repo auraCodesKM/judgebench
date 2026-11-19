@@ -177,13 +177,15 @@ def run(root: BaseAgent, state: dict[str, Any]) -> dict[str, Any]:
         runner = Runner(app_name=app, agent=root, session_service=sessions)
         s = await sessions.create_session(app_name=app, user_id="worker", state=state)
         msg = types.Content(role="user", parts=[types.Part(text="Begin.")])
-        async for _ in runner.run_async(
-            user_id="worker", session_id=s.id, new_message=msg, run_config=RunConfig(max_llm_calls=MAX_LLM_CALLS)
-        ):
-            pass
-        final = await sessions.get_session(app_name=app, user_id="worker", session_id=s.id)
-        await _close_model_clients(root)
-        return dict(final.state) if final else {}
+        try:
+            async for _ in runner.run_async(
+                user_id="worker", session_id=s.id, new_message=msg, run_config=RunConfig(max_llm_calls=MAX_LLM_CALLS)
+            ):
+                pass
+            final = await sessions.get_session(app_name=app, user_id="worker", session_id=s.id)
+            return dict(final.state) if final else {}
+        finally:  # also when the run fails (network errors, quota), or aclose() fires after the loop closes
+            await _close_model_clients(root)
 
     with tracing.span(f"agent.{root.name}", agent=root.name):
         return asyncio.run(go())
