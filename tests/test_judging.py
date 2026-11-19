@@ -87,3 +87,12 @@ def test_more_id_forms_are_removed() -> None:
     assert dejargon("How do you test? (Evidence: E1, E2, E9) (from CI run 7)") == "How do you test? (from CI run 7)"
     assert dejargon("What about bullets? [E7] (from README.md)") == "What about bullets? (from README.md)"
     assert dejargon("Evidence E15 shows the retriever is unused.") == "Evidence shows the retriever is unused."
+
+
+def test_paths_keep_their_leading_dot() -> None:
+    from judgebench.judging import dejargon
+
+    assert (
+        dejargon("Why no lock file? (E9) (from .github/workflows/test.yml)")
+        == "Why no lock file? (from .github/workflows/test.yml)"
+    )

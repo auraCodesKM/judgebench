@@ -239,7 +239,10 @@ def build_tabs(
         scored = ev is not None and ev.total_score is not None
         rank += scored
         ref = parse_repo_url(sub.repo_url or "")
-        questions = [dejargon(str(q)) for q in (ev.suggested_questions if ev else [])]
+        questions = [
+            dejargon(str(q)).replace("(from form:", "(from submission form:")
+            for q in (ev.suggested_questions if ev else [])
+        ]
         flags = sum(c.flagged for c in scores) + sum(c.verification_status == "CONTRADICTED" for c in claims)
         host = urlsplit(sub.deployed_url or "").hostname or ""
         tabs["Leaderboard"][f"team:{sub.team_id}"] = [

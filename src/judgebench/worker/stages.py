@@ -739,6 +739,8 @@ def _source_label(e: EvidenceView) -> str:
         return f"CI run {e.locator[7:]}"
     if e.source_type == "demo":
         return "demo video"
+    if e.source_type == "form" or e.locator.startswith("form:"):
+        return "submission form"
     return e.locator
 
 

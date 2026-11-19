@@ -65,7 +65,7 @@ _IDS = re.compile(
 def dejargon(text: str) -> str:
     """Drop internal references a judge can't use: "(E9)", "(E1, E4)", "C1 claims ..."."""
     t = _IDS.sub(" ", text or "")
-    return re.sub(r"\s+([.,;:])", r"\1", " ".join(t.split()))
+    return re.sub(r"\s+([.,;:])(?=\s|$)", r"\1", " ".join(t.split()))  # "x ." -> "x.", never ".github"
 
 
 def clip(text: str, n: int) -> str:
