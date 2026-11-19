@@ -119,5 +119,21 @@ def test_quota_exhaustion_is_named(session_factory: sessionmaker[Session], sessi
     sub = submit(session, "Team Q")
     drive(session_factory, deps(repos.ALPHA_RAG, fake(claim_analyst=exhausted)))
     session.refresh(sub)
-    assert sub.error_category == "model_quota_exhausted"
+    assert sub.error_category == "model_quota_exhausted" and sub.state == State.FAILED  # no silent fallback
     assert sub.error_detail == "GenerateRequestsPerDayPerProjectPerModel-FreeTier; retry after 79654s"
+
+
+@pytest.mark.db
+def test_model_override_per_team(free: None, monkeypatch: pytest.MonkeyPatch, session: Session) -> None:
+    from judgebench.worker import stages
+
+    monkeypatch.setattr(stages, "settings", lambda: modes.settings())
+    beta, alpha = submit(session, "Team Beta"), submit(session, "Team Alpha")
+    event = session.get_one(m.Event, beta.event_id)
+    event.config = {**event.config, "model_overrides": {"Team Beta": "gemini-3.6-flash"}}
+    session.commit()
+    d = deps(repos.ALPHA_RAG, fake())
+    cheap, strong = stages._models(session, beta, d)
+    assert isinstance(strong, modes.FreeGemini) and cheap is strong
+    assert modes.model_label(strong) == "gemini-3.6-flash (Gemini API free tier)"
+    assert stages._models(session, alpha, d) == (d.cheap, d.strong)  # everyone else: the default model

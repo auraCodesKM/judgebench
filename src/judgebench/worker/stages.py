@@ -48,6 +48,7 @@ from judgebench.db.models import (
     Notification,
     RepositoryProfileRow,
     Submission,
+    Team,
     UsageRecord,
     utcnow,
 )
@@ -103,6 +104,16 @@ class Out:
 
 
 # --- helpers ---------------------------------------------------------------------------
+
+
+def _models(session: Session, sub: Submission, deps: Deps) -> tuple[team.Model, team.Model]:
+    """(cheap, strong) for this submission: the event's model_overrides[team name] in gemini_free mode."""
+    overrides = (session.get_one(Event, sub.event_id).config or {}).get("model_overrides") or {}
+    name = session.get_one(Team, sub.team_id).name
+    if settings().llm_mode == "gemini_free" and (m := overrides.get(name)):
+        model = configured(m, free_model=m)
+        return model, model
+    return deps.cheap, deps.strong
 
 
 def youtube_url(url: str | None) -> str | None:
@@ -356,7 +367,7 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         for k in ("project_title", "problem_statement", "tech_claims", "dataset_eval", "special_requirements")
     )
     state = runtime.run(
-        team.claim_analyst(deps.cheap, meter),
+        team.claim_analyst(_models(session, sub, deps)[0], meter),
         {
             "readme_block": fence("README", readme or "(no README)", 15_000),
             "form_block": fence("form", form_text, 8_000),
@@ -375,7 +386,7 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     if video and claims:
         try:
             demo = runtime.run(
-                team.demo_analyst(deps.cheap, meter, video, DEMO_SECONDS, DEMO_FPS),
+                team.demo_analyst(_models(session, sub, deps)[0], meter, video, DEMO_SECONDS, DEMO_FPS),
                 {"claims_block": claims_block(claims)},
             ).get("demo")
         except Exception as exc:  # the video itself is the problem: private/removed/unsupported
@@ -448,7 +459,7 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     with checkout(deps, sub) as root:
         tools = team.investigation_tools(root, evidence)
         state = runtime.run(
-            team.orchestrator(profile.recommended_adapters, deps.cheap, deps.strong, meter, tools, deps.votes),
+            team.orchestrator(profile.recommended_adapters, *_models(session, sub, deps), meter, tools, deps.votes),
             {
                 "adapters": profile.recommended_adapters,
                 "profile_block": fence(
@@ -530,7 +541,7 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         rubric_version=cfg.rubric_version,
         evaluator_version=EVALUATOR_VERSION,
         prompt_version=runtime.PROMPT_VERSION,
-        model=runtime.model_name(deps.strong),
+        model=runtime.model_name(_models(session, sub, deps)[1]),
         status="draft",
         flags=flags,
         suggested_questions=_questions(session, sub, raw_questions, by_id),
@@ -638,7 +649,7 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         for s in scores
     )
     state = runtime.run(
-        team.critic(deps.strong, meter),
+        team.critic(_models(session, sub, deps)[1], meter),
         {"rubric_block": rubric_block(cfg.rubric), "_evidence": evidence, "scores_block": scores_block},
     )
     messages += apply_critique(scores, state.get("critique"))
@@ -844,7 +855,8 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                         f"{quota.group(1) if quota else 'rate limit'}; retry after {delay.group(1) if delay else '?'}"
                     )
                     log.warning("model quota exhausted for %s: %s", sid, detail)
-                    record_failure(session, sid, "model_quota_exhausted", retryable=True, detail=detail)
+                    daily = "PerDay" in detail  # can't succeed again today: fail honestly, don't burn requests
+                    record_failure(session, sid, "model_quota_exhausted", retryable=not daily, detail=detail)
                 else:
                     log.exception("stage %s crashed for %s", state, sid)
                     record_failure(session, sid, "internal_error", retryable=True, detail=type(exc).__name__)

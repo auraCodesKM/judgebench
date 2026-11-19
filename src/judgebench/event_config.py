@@ -42,6 +42,9 @@ class EventConfig(BaseModel):
     judges: list[Judge] = []
     # Codes handed to registered teams (`judgebench team-codes`). Empty: no code check (e.g. benchmarks).
     team_codes: list[str] = []
+    # LLM_MODE=gemini_free only: a different free-tier model for named teams (e.g. the on-camera team on
+    # gemini-3.6-flash, the rest on GEMINI_FREE_MODEL). Each evaluation records the model that really ran.
+    model_overrides: dict[str, str] = {}
 
     @field_validator("team_codes")
     @classmethod

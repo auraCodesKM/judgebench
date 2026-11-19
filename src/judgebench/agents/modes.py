@@ -88,7 +88,8 @@ FREE_RETRY = types.HttpRetryOptions(
 )
 
 
-def configured(name: str) -> "str | FakeLlm | FreeGemini":
+def configured(name: str, free_model: str | None = None) -> "str | FakeLlm | FreeGemini":
+    """`free_model`: a per-team override of GEMINI_FREE_MODEL (gemini_free only; never a fallback)."""
     cfg = settings()
     if cfg.llm_mode == "vertex":
         return name
@@ -96,7 +97,7 @@ def configured(name: str) -> "str | FakeLlm | FreeGemini":
         if not cfg.gemini_api_key:
             raise RuntimeError("LLM_MODE=gemini_free needs GEMINI_API_KEY (see M0_SETUP.md item 9)")
         return FreeGemini(  # one free-tier model for every agent: GEMINI_FREE_MODEL, not GEMINI_MODEL (Vertex)
-            model=cfg.gemini_free_model,
+            model=free_model or cfg.gemini_free_model,
             client_kwargs={"api_key": cfg.gemini_api_key, "vertexai": False},
             retry_options=FREE_RETRY,
         )
