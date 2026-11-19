@@ -13,6 +13,7 @@
 """
 
 import logging
+import threading
 import time
 from datetime import timedelta
 from typing import Any
@@ -102,8 +103,17 @@ def format_message(team: str | None, text: str) -> str:
     return f"{team}: {text}" if team and team not in text else text
 
 
+_DRAIN = threading.Lock()  # one drain at a time per process: workers would otherwise race on a team's
+# progress message (both see "not sent yet" and post two messages instead of one plus an edit)
+
+
 def drain(session: Session, bot: TelegramBot, *, limit: int = 20, mode: str | None = None) -> int:
     """Send pending notifications in order. Returns how many were handled. Commits."""
+    with _DRAIN:
+        return _drain(session, bot, limit=limit, mode=mode)
+
+
+def _drain(session: Session, bot: TelegramBot, *, limit: int, mode: str | None) -> int:
     from judgebench.config import settings
 
     mode = mode or settings().telegram_mode

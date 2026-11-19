@@ -97,3 +97,30 @@ def test_per_chat_spacing() -> None:
     for _ in range(3):
         bot.send(-1, "x")
     assert time.monotonic() - start >= 0.1  # 3 posts, 2 gaps
+
+
+def test_concurrent_drains_post_one_progress_message(session_factory: sessionmaker[Session], session: Session) -> None:
+    import threading
+
+    sub = submit(session, "Team Race")
+    session.get_one(m.Event, sub.event_id).telegram_chat_id = -100
+    for stage in ("RECEIVED", "PROFILED", "CI"):
+        session.add(
+            m.Notification(
+                tenant_id=sub.tenant_id, event_id=sub.event_id, submission_id=sub.id, stage=stage, text=stage
+            )
+        )
+    session.commit()
+    calls: list[tuple[str, dict[str, Any]]] = []
+    bot = recording_bot(calls)
+
+    def worker() -> None:
+        with session_factory() as s:
+            drain(s, bot, mode="compact")
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(sends(calls)) == 1  # one progress message for the team, however many workers drain
