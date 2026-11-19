@@ -11,6 +11,7 @@
   replay <run> --into <demo> [--speed X]   replay a stored run into a demo channel + workbook
   reset-demo <slug>         wipe a demo event back to empty (re-takes)
   demo-preflight <slug>     everything a live demo take needs; prints READY
+  demo-submit <slug> --after T   after T's real submission, submit the other demo teams via the Form
   purge <slug> --team T     remove a team completely (dry runs, test submissions)
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
@@ -363,6 +364,19 @@ def cmd_demo_preflight(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_demo_submit(args: argparse.Namespace) -> None:
+    import yaml
+
+    from judgebench.demo import demo_submit
+    from judgebench.event_config import load_event_config
+
+    cfg = load_event_config(Path(f"events/{args.slug}.yaml"))
+    teams = yaml.safe_load(Path("benchmark/demo_teams.yaml").read_text())  # = DEMO_FORM_ANSWERS.md
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+    demo_submit(sessions(), event, teams, cfg.team_codes, args.after, args.gap)
+
+
 def cmd_purge(args: argparse.Namespace) -> None:
     from judgebench.admin import purge_team
     from judgebench.telegram.notify import TelegramBot
@@ -497,6 +511,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("slug")
     p.add_argument("--teams", type=int, default=1, help="teams the take will submit (quota check)")
     p.set_defaults(fn=cmd_demo_preflight)
+    p = sub.add_parser("demo-submit")
+    p.add_argument("slug")
+    p.add_argument("--after", required=True, help='team you submit on camera, e.g. "Team Beta"')
+    p.add_argument("--gap", type=float, default=20.0)
+    p.set_defaults(fn=cmd_demo_submit)
     p = sub.add_parser("purge")
     p.add_argument("slug")
     p.add_argument("--team", action="append", required=True)

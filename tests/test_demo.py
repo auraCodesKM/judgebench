@@ -81,3 +81,36 @@ def test_quota_estimate(session_factory: sessionmaker[Session], session: Session
     quota_check(p, session, "gemini-3.6-flash", teams=1)
     assert (20 - used >= 14) == (not p.problems)
     assert sub
+
+
+def test_demo_submit_waits_for_the_on_camera_team_then_submits_the_rest(
+    session_factory: sessionmaker[Session], session: Session
+) -> None:
+    from judgebench.demo import demo_submit
+
+    sub = submit(session, "Placeholder")
+    event = session.get_one(m.Event, sub.event_id)
+    event.slug = "demo-x"
+    session.add(m.EventIntegration(tenant_id=event.tenant_id, event_id=event.id, provider="google_forms",
+                                   external_ids={"responder_uri": "https://f/viewform", "questions": {}}))  # fmt: skip
+    session.commit()
+    teams = [{"team_name": n} for n in ("Team Beta", "Team Alpha", "Team Zeta")]
+    posted: list[tuple[str, str]] = []
+    polls = {"n": 0}
+
+    def sleep(sec: float) -> None:  # Beta's real submission "arrives" during the third poll
+        polls["n"] += 1
+        if polls["n"] == 3:
+            submit(session, "Team Beta")
+
+    done = demo_submit(session_factory, event, teams, ["AAAA-1111", "BBBB-2222", "CCCC-3333"], "Team Beta", 20,
+                       post=lambda uri, q, t, c: posted.append((t["team_name"], c)) or 200, sleep=sleep, say=lambda m: None)  # fmt: skip
+    assert done == ["Team Alpha", "Team Zeta"] and posted == [("Team Alpha", "BBBB-2222"), ("Team Zeta", "CCCC-3333")]
+
+
+def test_demo_submit_refuses_real_events(session: Session) -> None:
+    from judgebench.demo import demo_submit
+    from tests.conftest import make_event
+
+    with pytest.raises(SystemExit):
+        demo_submit(None, make_event(session, "campus-ai-2026"), [], [], "Team Beta", 1)

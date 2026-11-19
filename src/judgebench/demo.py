@@ -4,9 +4,11 @@
 Both refuse any event whose slug does not contain "demo", so the real event can never be wiped.
 """
 
+import time as clock
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
@@ -144,3 +146,88 @@ def event_empty(p: Preflight, session: Session, event: Event, sheet_rows: int) -
     p.check(teams == 0, "no teams in the demo event", f"{teams} team(s) in the event: run reset-demo")
     p.check(posts == 0, "no posts of ours in the demo channel", f"{posts} post(s) in the channel: run reset-demo")
     p.check(sheet_rows == 0, "workbook Leaderboard is empty", f"Leaderboard has {sheet_rows} row(s): run reset-demo")
+
+
+def form_post(responder_uri: str, questions: dict[str, str], answers: dict[str, Any], code: str) -> int:
+    """Submit one team through the Form's public endpoint, exactly as a browser does (same responses API,
+    same ingestion). Returns the HTTP status."""
+    from urllib.parse import urlencode
+
+    import httpx
+
+    from judgebench.google.workspace import CONSENT
+
+    entry = {key: f"entry.{int(qid, 16)}" for qid, key in questions.items()}
+    data = [
+        (entry[k], str(x))
+        for k, v in {**answers, "team_code": code, "consent": [CONSENT]}.items()
+        if k in entry
+        for x in (v if isinstance(v, list) else [v])
+    ]
+    r = httpx.post(
+        responder_uri.replace("/viewform", "/formResponse"),
+        content=urlencode(data),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+        follow_redirects=True,
+    )
+    return r.status_code
+
+
+def demo_submit(
+    session_factory: Any,
+    event: Event,
+    teams: list[dict[str, Any]],
+    codes: list[str],
+    after: str,
+    gap: float,
+    post: Callable[[str, dict[str, str], dict[str, Any], str], int] = form_post,
+    sleep: Callable[[float], None] = clock.sleep,
+    timeout: float = 1800,
+    say: Callable[[str], None] = print,
+) -> list[str]:
+    """Wait until `after`'s real Form submission has been ingested, then submit every other team, one per
+    `gap` seconds, through the public Form. Returns the teams submitted."""
+    from judgebench.db.models import Submission
+
+    require_demo(event)
+    if len(codes) < len(teams):
+        raise SystemExit(f"{event.slug}: {len(codes)} team codes for {len(teams)} teams (run team-codes)")
+    with session_factory() as s:
+        forms = s.scalars(
+            select(EventIntegration).where(
+                EventIntegration.event_id == event.id, EventIntegration.provider == "google_forms"
+            )
+        ).one()
+        uri, questions = forms.external_ids["responder_uri"], forms.external_ids["questions"]
+    started = datetime.now(UTC)
+    say(f"waiting for {after}'s Form submission to arrive (start the run loop first) ...")
+    waited = 0.0
+    while True:
+        with session_factory() as s:
+            arrived = s.scalar(
+                select(Submission.id)
+                .join(Team, Team.id == Submission.team_id)
+                .where(
+                    Submission.event_id == event.id,
+                    func.lower(Team.name) == after.lower(),
+                    Submission.created_at >= started,
+                )
+                .limit(1)
+            )
+        if arrived:
+            break
+        if waited >= timeout:
+            raise SystemExit(f"{after} did not arrive within {timeout:.0f} s")
+        sleep(3)
+        waited += 3
+    say(f"{after} arrived. Submitting the other teams, one every {gap:g} s.")
+    done = []
+    for t, code in zip(teams, codes, strict=False):
+        if t["team_name"].lower() == after.lower():
+            continue
+        sleep(gap)
+        status = post(uri, questions, t, code)
+        say(f"  {datetime.now():%H:%M:%S}  {t['team_name']}: Form submitted (HTTP {status})")
+        done.append(t["team_name"])
+    return done
