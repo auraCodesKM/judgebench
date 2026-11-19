@@ -13,12 +13,13 @@ agent  orchestrator        custom ADK BaseAgent: routes to specialists chosen by
 """
 
 import re
+import warnings
 from collections import Counter
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from google.adk.agents import BaseAgent, LlmAgent
+from google.adk.agents import BaseAgent, LlmAgent, ParallelAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.adk.models.base_llm import BaseLlm
@@ -323,26 +324,19 @@ class Orchestrator(BaseAgent):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        selected = set(ctx.session.state.get("adapters", []))
         by_name = {a.name: a for a in self.sub_agents}
-        specific: list[str] = [a for a in ("rag", "agentic", "ml") if a in selected]
-        for name in [f"{a}_specialist" for a in specific or ["generic"]]:  # generic only when nothing specific
-            if name in by_name:
-                async for event in by_name[name].run_async(ctx):
-                    yield event
-        async for event in by_name["claim_investigator"].run_async(ctx):
+        # Specialists and the claim investigator are independent: they run at the same time.
+        async for event in by_name["review"].run_async(ctx):
             yield event
-        judges = sorted(n for n in by_name if n.startswith("claim_judge_"))
-        contested = contested_claims(ctx.session.state) if judges else []
-        if contested:  # only claims whose evidence disagrees get the extra votes; the rest need one call
+        contested = contested_claims(ctx.session.state) if "claim_judges" in by_name else []
+        if contested:  # only claims whose evidence disagrees get the extra votes (two judges, in parallel)
             yield Event(
                 author=self.name,
                 invocation_id=ctx.invocation_id,
                 actions=EventActions(state_delta={"vote_claims": contested}),
             )
-            for judge in judges:
-                async for event in by_name[judge].run_async(ctx):
-                    yield event
+            async for event in by_name["claim_judges"].run_async(ctx):
+                yield event
         verdicts = clamped_verdicts(ctx.session.state)
         yield Event(
             author=self.name,
@@ -481,13 +475,21 @@ def orchestrator(
     adapters: list[str], cheap: Model, strong: Model, meter: Meter, tools: list[Any], votes: int = 1
 ) -> Orchestrator:
     specific: list[str] = [a for a in ("rag", "agentic", "ml") if a in adapters]
-    specialists = [specialist(a, cheap, meter) for a in specific or ["generic"]]
+    specialists: list[BaseAgent] = [specialist(a, cheap, meter) for a in specific or ["generic"]]
+    judges: list[BaseAgent] = [claim_judge(strong, meter, n) for n in range(2, votes + 1)]
+    with warnings.catch_warnings():  # ParallelAgent: deprecated for Workflow, which can't be a sub-agent yet (ADK 2.14)
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return _orchestrator(specialists, strong, meter, tools, judges)
+
+
+def _orchestrator(
+    specialists: list[BaseAgent], strong: Model, meter: Meter, tools: list[Any], judges: list[BaseAgent]
+) -> Orchestrator:
     return Orchestrator(
         name="orchestrator",
         sub_agents=[
-            *specialists,
-            claim_investigator(strong, meter, tools),
-            *[claim_judge(strong, meter, n) for n in range(2, votes + 1)],
+            ParallelAgent(name="review", sub_agents=[*specialists, claim_investigator(strong, meter, tools)]),
+            *([ParallelAgent(name="claim_judges", sub_agents=judges)] if judges else []),
             rubric_evaluator(strong, meter),
         ],
     )
