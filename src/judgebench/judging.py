@@ -151,6 +151,8 @@ def top_concern(claims: list[Any], evidence: list[Any], scores: list[Any], names
     by = {e.key: e for e in evidence}
     if found := contradicted(claims):
         text = contradiction(found[0])
+        if len(text.split()) > 20:  # too long with the quote: just say what was found
+            text = sentence(found[0].rationale or "", 160)
         return words(text[:1].upper() + text[1:])
     for key in ("live.sample_query", "live.health"):
         if (e := by.get(key)) and e.status == "CONTRADICTED":
@@ -183,8 +185,11 @@ def template_questions(claims: list[Any], evidence: list[Any], deployed_url: str
     out: list[tuple[str, str]] = []
     sample = by.get("live.sample_query")
     m = _MS.search(sample.observation) if sample else None
-    for c in sorted(claims, key=lambda c: (c.verification_status != "CONTRADICTED", len(c.text))):
-        claim = plain_claim(c.text)
+    first = contradicted(claims)  # the same order as the alerts and the biggest concern
+    rest = sorted((c for c in claims if c not in first), key=lambda c: len(c.text))
+    for c in [*first, *rest]:
+        pct = re.search(r"\d+(?:\.\d+)?%\s*\w+", c.text)
+        claim = pct.group(0) if pct else plain_claim(c.text)
         if c.verification_status == "CONTRADICTED" and _SPEED.search(c.text) and m and sample:
             secs = int(m.group(2)) / 1000
             out.append(

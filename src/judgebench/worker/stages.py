@@ -118,6 +118,14 @@ class Out:
 # --- helpers ---------------------------------------------------------------------------
 
 
+def _votes_text(votes: str) -> str:
+    """ "CONTRADICTED 3/3" -> "3 of 3 checks found it contradicted"."""
+    m = re.match(r"([A-Z_]+) (\d+)/(\d+)", votes or "")
+    if not m:
+        return "The checks didn't agree on this claim." if "no majority" in (votes or "") else votes
+    return f"{m.group(2)} of {m.group(3)} checks found it {m.group(1).lower().replace('_', ' ')}."
+
+
 def _models(session: Session, sub: Submission, deps: Deps) -> tuple[team.Model, team.Model]:
     """(cheap, strong) for this submission: the event's model_overrides[team name] in gemini_free mode."""
     overrides = (session.get_one(Event, sub.event_id).config or {}).get("model_overrides") or {}
@@ -309,7 +317,7 @@ def _demo_findings(review: dict[str, Any] | None, claims: list[ClaimView]) -> tu
             verification_method="demo_review",
             criterion="presentation",
         )
-        return [f], CheckStatus.NOT_VERIFIABLE, "video unavailable, marked MISSING"
+        return [f], CheckStatus.NOT_VERIFIABLE, "The demo video couldn't be watched."
     text = {c.id: c.text for c in claims}
     out, headline = [], ""
     for o in review.get("observations", []):
@@ -410,7 +418,7 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         demo_f, demo_status, demo_line = _demo_findings(demo, claims)
     else:
         demo_status = CheckStatus.NOT_VERIFIABLE
-        demo_line = "no YouTube demo URL, marked MISSING" if not video else "no claims to check against the demo"
+        demo_line = "No demo video linked." if not video else "No claims to check against the demo."
         demo_f = [
             Finding(
                 key="demo.unavailable",
@@ -508,7 +516,7 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
                         Finding(
                             key="investigation.verdict_votes",
                             claim=row.text,
-                            observation=f"{v['claim_id']} verdict {v['votes']} votes",
+                            observation=_votes_text(v["votes"]),
                             source_type=SourceType.FORM if row.source == "form" else SourceType.DOCUMENTATION,
                             source_locator=f"claim:{v['claim_id']}",
                             status=EvidenceStatus.CONTRADICTED

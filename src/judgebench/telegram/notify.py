@@ -136,12 +136,14 @@ def drain(session: Session, bot: TelegramBot, *, limit: int = 20, mode: str | No
                     progress.setdefault(note.submission_id, (chat_id, team, version, []))[3].append(note)
                 else:
                     note.sent_at, note.last_error = utcnow(), None
+                    session.commit()  # record each send at once: a later failure must not make us resend it
                 handled += 1
             except RuntimeError as exc:
                 note.last_error = str(exc)[:500]
                 note.next_attempt_at = utcnow() + timedelta(seconds=min(300, 5 * 2**note.attempts))
         for sid, (p_chat, p_team, p_version, p_notes) in progress.items():
             _update_progress(session, bot, sid, p_chat, p_team, p_version, p_notes)
+            session.commit()
     except RateLimited as exc:
         for note, *_ in rows:
             if note.sent_at is None:

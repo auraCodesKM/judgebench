@@ -32,7 +32,7 @@ BETA_CLAIMS = [
     c(
         "Our RAG system answers in real time",
         "CONTRADICTED",
-        "[CONTRADICTED 3/3] Rule: the live check measured 8.5 s for POST /ask, not real-time.",
+        "[CONTRADICTED 3/3] Rule: their app took 8.5 s when I tried it.",
     ),
     c("98% accuracy", "UNVERIFIED", "[UNVERIFIED 3/3] No evaluation code."),
 ]

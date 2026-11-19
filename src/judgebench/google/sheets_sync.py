@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from judgebench.agents.modes import display
+from judgebench.agents.modes import display, is_mock
 from judgebench.db.models import (
     AuditEvent,
     Claim,
@@ -241,6 +241,8 @@ def build_tabs(
         ref = parse_repo_url(sub.repo_url or "")
         questions = [
             re.sub(r"\(from form:[^)]*\)", "(from submission form)", dejargon(str(q)))
+            if ev is None or is_mock(ev.model)
+            else re.sub(r"\(from form:[^)]*\)", "(from submission form)", dejargon(str(q))).replace("; template)", ")")
             for q in (ev.suggested_questions if ev else [])
         ]
         flags = sum(c.flagged for c in scores) + sum(c.verification_status == "CONTRADICTED" for c in claims)
@@ -285,7 +287,7 @@ def build_tabs(
             team,
             "TEAM",
             f"{ev.total_score:g} / {max_total}" if scored else "",
-            f"{CONFIDENCE.get(ev.confidence or '', ev.confidence)} confidence",
+            f"{ev.confidence} confidence",
             "",
             f"{flags} flag{'s' if flags != 1 else ''}" if flags else "",
             "\n".join(f"• {q}" for q in questions[:5]),
