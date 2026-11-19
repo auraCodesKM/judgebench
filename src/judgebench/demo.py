@@ -265,7 +265,8 @@ def live_rate_check(p: Preflight, model: str, api_key: str) -> None:
 
     rpm = settings().gemini_free_rpm or FREE_LIMITS.get(model, (10, 0))[0]
     try:
-        genai.Client(api_key=api_key, vertexai=False).models.generate_content(
+        client = genai.Client(api_key=api_key, vertexai=False)  # keep a reference: a dropped client closes itself
+        client.models.generate_content(
             model=model,
             contents="ok",
             config=types.GenerateContentConfig(

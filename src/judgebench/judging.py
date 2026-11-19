@@ -62,7 +62,9 @@ _IDS = re.compile(
 )
 
 
-_KEY = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in sorted(NAMES, key=len, reverse=True)) + r")\b")  # exact keys only
+_KEY = re.compile(
+    r"\b(?:" + "|".join(re.escape(k) for k in sorted(NAMES, key=len, reverse=True)) + r")\b"
+)  # exact keys only
 _ARROW = re.compile(r"-> (\d{3}) in (\d+) ms(?: \([^)]*\))?")
 
 
