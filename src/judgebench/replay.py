@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from judgebench.agents.modes import display
-from judgebench.db.models import Evaluation, Event, Notification, Submission, Team
+from judgebench.db.models import AuditEvent, Evaluation, Event, JudgeMembership, Notification, Submission, Team
 from judgebench.google.sheets_sync import Cell, build_tabs
 from judgebench.telegram.compact import classify, progress_text
 from judgebench.telegram.notify import format_message
@@ -41,7 +41,41 @@ def run_label(session: Session, event: Event) -> str:
             if m
         }
     )
-    return f"replay of run {event.slug}, {' + '.join(models) or 'no model'}, {event.created_at:%Y-%m-%d}"
+    kind = " · synthetic benchmark teams" if event.slug.startswith("bench-") else ""
+    return f"replay of run {event.slug}{kind}, {' + '.join(models) or 'no model'}, {event.created_at:%Y-%m-%d}"
+
+
+def grant_judges(session: Session, demo: Event, source: Event) -> int:
+    """Let the demo event's judges ask the Copilot about the replayed run (scoped, audited)."""
+    have = {m.user_id for m in session.scalars(select(JudgeMembership).where(JudgeMembership.event_id == source.id))}
+    added = 0
+    for m in session.scalars(
+        select(JudgeMembership).where(JudgeMembership.event_id == demo.id, JudgeMembership.status == "active")
+    ):
+        if m.user_id not in have:
+            session.add(
+                JudgeMembership(
+                    tenant_id=source.tenant_id,
+                    event_id=source.id,
+                    user_id=m.user_id,
+                    telegram_user_id=m.telegram_user_id,
+                    status="active",
+                )
+            )
+            added += 1
+    if added:
+        session.add(
+            AuditEvent(
+                tenant_id=source.tenant_id,
+                event_id=source.id,
+                actor="operator",
+                action="judges_granted_for_replay",
+                target=demo.slug,
+                detail={"judges": added},
+            )
+        )
+    session.flush()
+    return added
 
 
 def replay(

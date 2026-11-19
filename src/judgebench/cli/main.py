@@ -205,7 +205,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
     from judgebench.google import workspace
     from judgebench.google.layout import apply_layout
     from judgebench.google.sheets_sync import write_rows
-    from judgebench.replay import replay, run_label
+    from judgebench.replay import grant_judges, replay, run_label
     from judgebench.telegram.notify import TelegramBot
 
     cfg = settings()
@@ -226,6 +226,8 @@ def cmd_replay(args: argparse.Namespace) -> None:
         if not chat:
             sys.exit(f"{args.into} has no telegram_chat_id")
         label = run_label(s, source)
+        granted = grant_judges(s, demo, source)  # demo judges can /ask the Copilot about the replayed teams
+        s.commit()
         apply_layout(google, sid)
         workspace.set_title(google, sid, f"{demo.name}: {label}")
         write_rows(lambda tab, rows: workspace.write_tab(google, sid, tab, rows), {})  # start empty
@@ -237,7 +239,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
             speed=args.speed,
             edit=(lambda mid, text: bot.edit(chat, mid, text)) if settings().telegram_mode == "compact" else None,
         )
-    print(f"{r.label}: {r.messages} messages, {r.teams} team(s) replayed")
+    print(f"{r.label}: {r.messages} messages, {r.teams} team(s) replayed; Copilot access for {granted} new judge(s)")
 
 
 def cmd_purge(args: argparse.Namespace) -> None:

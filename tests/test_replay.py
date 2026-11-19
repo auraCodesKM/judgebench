@@ -75,3 +75,21 @@ def test_compact_replay_edits_one_progress_message_per_team(
     alerts = [t.removeprefix("[Team A] ") for t in sent if t.startswith("[Team A] ")]
     assert alerts and set(alerts) <= stored  # every alert is a stored line, verbatim
     assert any(t.startswith("Summary:") for t in alerts) and not any(t.startswith("Cost:") for t in alerts)
+
+
+def test_demo_judges_get_copilot_access_to_the_replayed_run(session: Session) -> None:
+    from judgebench.replay import grant_judges
+    from tests.conftest import make_event
+
+    demo, run = make_event(session, "demo"), make_event(session, "bench-1")
+    user = m.User(identity_provider="telegram", subject="42")
+    session.add(user)
+    session.flush()
+    session.add(
+        m.JudgeMembership(
+            tenant_id=demo.tenant_id, event_id=demo.id, user_id=user.id, telegram_user_id=42, status="active"
+        )
+    )
+    session.flush()
+    assert grant_judges(session, demo, run) == 1 and grant_judges(session, demo, run) == 0  # idempotent
+    assert session.query(m.AuditEvent).filter_by(action="judges_granted_for_replay").count() == 1

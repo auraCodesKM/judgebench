@@ -51,7 +51,8 @@ def run(
         subs: dict[str, list[Any]] = {}
         for name, repo in spec["repos"].items():
             for i in range(runs):
-                team = Team(tenant_id=event.tenant_id, event_id=event.id, name=f"{name} #{i}", name_key=f"{name} #{i}")
+                label = f"Team {name.capitalize()}" + (f" #{i + 1}" if runs > 1 else "")
+                team = Team(tenant_id=event.tenant_id, event_id=event.id, name=label, name_key=label.casefold())
                 s.add(team)
                 s.flush()
                 sub = Submission(
