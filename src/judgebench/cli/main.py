@@ -7,6 +7,7 @@
   doctor                    check every credential and dependency
   usage <slug>              tokens, cost, latency per submission and agent
   reevaluate <slug> <team>  re-run a team's latest submission as the next version
+  purge <slug> --team T     remove a team completely (dry runs, test submissions)
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
   bench [--runs N]          demo-cast benchmark (retrieval + agent trajectories)
@@ -183,6 +184,28 @@ def cmd_reevaluate(args: argparse.Namespace) -> None:
         print(f"{args.team}: v{sub.version} queued (same answers, same pinned commit); `run` picks it up")
 
 
+def cmd_purge(args: argparse.Namespace) -> None:
+    from judgebench.admin import purge_team
+    from judgebench.telegram.notify import TelegramBot
+
+    token = settings().telegram_bot_token
+    bot = TelegramBot(token) if token else None
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        for name in args.team:
+            if (
+                not args.yes
+                and input(f"Permanently remove team {name!r} from {args.slug}? Type the team name: ") != name
+            ):
+                print(f"skipped {name!r}")
+                continue
+            r = purge_team(s, event, name, (lambda c, m: bot.delete(c, m)) if bot else (lambda c, m: False))
+            s.commit()
+            print(
+                f"purged {r.team}: {r.submissions} submission(s), Telegram {r.telegram_deleted} deleted, {r.telegram_failed} not"
+            )
+
+
 def cmd_explain(args: argparse.Namespace) -> None:
     from judgebench.explain import explain
 
@@ -277,6 +300,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("slug")
     p.add_argument("team")
     p.set_defaults(fn=cmd_reevaluate)
+    p = sub.add_parser("purge")
+    p.add_argument("slug")
+    p.add_argument("--team", action="append", required=True)
+    p.add_argument("--yes", action="store_true", help="skip the typed confirmation")
+    p.set_defaults(fn=cmd_purge)
     p = sub.add_parser("explain")
     p.add_argument("slug")
     p.set_defaults(fn=cmd_explain)

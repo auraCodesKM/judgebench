@@ -50,6 +50,17 @@ class TelegramBot:
             raise RuntimeError(self._scrub(f"HTTP {resp.status_code}: {body.get('description', '')}"))
         return int(body["result"]["message_id"])
 
+    def delete(self, chat_id: int, message_id: int) -> bool:
+        """Delete one of the bot's own posts (a channel admin with Post Messages may)."""
+        try:
+            resp = self._http.post(
+                f"https://api.telegram.org/bot{self._token}/deleteMessage",
+                json={"chat_id": chat_id, "message_id": message_id},
+            )
+        except httpx.HTTPError:
+            return False
+        return bool(resp.headers.get("content-type", "").startswith("application/json") and resp.json().get("ok"))
+
 
 def format_message(team: str | None, text: str) -> str:
     team = " ".join((team or "").split())[:80]
