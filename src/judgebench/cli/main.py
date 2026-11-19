@@ -81,6 +81,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     cfg = settings()
     if not cfg.telegram_bot_token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set (see M0_SETUP.md)")
+    if msg := run_mode_problem(cfg.llm_mode, args.billed_ok):
+        sys.exit(msg)
     factory = sessions()
     google = workspace.session(Path(cfg.google_token_file))
     deps = Deps.from_settings()
@@ -121,6 +123,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         if args.once:
             return
         time.sleep(args.interval)
+
+
+def run_mode_problem(mode: str, billed_ok: bool) -> str | None:
+    """Real events: offline is the safe default. gemini_free would refuse (FAIL) every real submission;
+    vertex is billed and must be asked for explicitly."""
+    if mode == "gemini_free":
+        return "LLM_MODE=gemini_free only evaluates the demo cast; real submissions would FAIL. Use LLM_MODE=offline."
+    if mode == "vertex" and not billed_ok:
+        return "LLM_MODE=vertex is billed. Re-run with --billed-ok if that is intended, or use LLM_MODE=offline."
+    return None
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -280,6 +292,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run")
     p.add_argument("--once", action="store_true")
     p.add_argument("--interval", type=int, default=30)
+    p.add_argument("--billed-ok", action="store_true", help="allow LLM_MODE=vertex (billed)")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("status")
     p.add_argument("slug")

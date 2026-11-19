@@ -59,3 +59,12 @@ def test_offline_pipeline_is_labelled_mock(session_factory: sessionmaker[Session
     tabs = build_tabs(session, sub.event_id)
     [row] = tabs["Leaderboard"].values()
     assert "MOCK (offline, no model)" in row
+
+
+def test_run_refuses_modes_unsafe_for_a_real_event() -> None:
+    from judgebench.cli.main import run_mode_problem
+
+    assert run_mode_problem("offline", False) is None
+    assert "would FAIL" in (run_mode_problem("gemini_free", True) or "")
+    assert "billed" in (run_mode_problem("vertex", False) or "")
+    assert run_mode_problem("vertex", True) is None
