@@ -83,3 +83,16 @@ def test_leaderboard_shows_latest_version_and_is_written_raw(session: Session) -
     assert [r[:5] for r in rows] == [['=HYPERLINK("http://x")', 2, "3f2c1ab", "PROFILED", "Agentic, LLM/RAG"]]
     assert sheet.tabs["Leaderboard"][1][1] == '=HYPERLINK("http://x")'  # written RAW: text, never a formula
     assert sync_workbook(session, event, sheet.read, sheet.write).written_tabs == []  # unchanged -> no write
+
+
+@pytest.mark.db
+def test_event_ready_is_announced_once(session: Session) -> None:
+    from judgebench.cli.setup import announce_ready
+    from tests.conftest import make_event
+
+    event = make_event(session, "once")
+    announce_ready(session, event)
+    session.flush()
+    announce_ready(session, event)  # setup re-run
+    session.flush()
+    assert session.query(m.Notification).filter_by(event_id=event.id, stage="EVENT_READY").count() == 1

@@ -109,6 +109,12 @@ def setup_google(session: Session, event: Event, cfg: EventConfig, g: Authorized
 
 
 def announce_ready(session: Session, event: Event) -> None:
+    """Once per event: re-running setup (judges, Form changes) must not re-announce."""
+    already = session.scalar(
+        select(Notification.id).where(Notification.event_id == event.id, Notification.stage == "EVENT_READY")
+    )
+    if already is not None:
+        return
     session.add(
         Notification(
             tenant_id=event.tenant_id,
