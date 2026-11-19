@@ -176,8 +176,11 @@ def live_check_findings(
     sample = parse_sample(sample_text, deployed_url)
     requests = [{"method": "GET", "url": deployed_url}] + ([sample.request] if sample.request else [])
     outcomes = probe.probe(requests)
+    cold = bool(outcomes) and "Timeout" in str(outcomes[0].get("error", ""))
+    if cold:  # free hosts sleep; the first request wakes the app. One retry, within the probe's caps.
+        outcomes = probe.probe(requests)
     findings: list[Finding] = []
-    parts: list[str] = []
+    parts: list[str] = ["cold start: retried once"] if cold else []
     status = CheckStatus.NOT_VERIFIABLE
     for i, (req, out) in enumerate(zip(requests, outcomes, strict=False)):
         label = "sample query" if i else _path(req["url"])

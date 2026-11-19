@@ -96,14 +96,15 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if new:
                     log.info("%s: %d new submission(s)", event.slug, len(new))
 
-    def work() -> None:
-        while (sid := run_next(factory, deps)) is not None:
-            log.info("processed %s", sid)
-
     def notify() -> None:
         with factory() as s:
             while drain(s, bot):
                 pass
+
+    def work() -> None:
+        while (sid := run_next(factory, deps)) is not None:
+            log.info("processed %s", sid)
+            _step("notify", notify)  # each stage's Telegram line goes out as soon as the stage commits
 
     def publish() -> None:
         with factory() as s:

@@ -134,3 +134,30 @@ def test_root_404_still_means_the_app_is_up() -> None:
     down = FakeProbe({"status": 502, "latency_ms": 90})
     findings, status, _ = live_check_findings(down, APP, None)
     assert status == CheckStatus.CHECK_FAILED
+
+
+class ColdProbe:
+    """First call: the sleeping app times out. Second call: it answers."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def probe(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        self.calls += 1
+        if self.calls == 1:
+            return [{"error": "TimeoutError"} for _ in requests]
+        return [{"status": 200, "latency_ms": 300, "content_type": "application/json"} for _ in requests]
+
+
+def test_cold_start_is_retried_once() -> None:
+    probe = ColdProbe()
+    findings, status, details = live_check_findings(probe, APP, None)
+    assert probe.calls == 2 and status == CheckStatus.PARTIALLY_VERIFIED
+    assert details["summary"].startswith("cold start: retried once")
+    assert next(f for f in findings if f.key == "live.health").status == EvidenceStatus.OBSERVED
+
+
+def test_unreachable_twice_is_still_not_verifiable() -> None:
+    probe = FakeProbe({"error": "TimeoutError"})
+    _, status, _ = live_check_findings(probe, APP, None)
+    assert status == CheckStatus.NOT_VERIFIABLE and len(probe.sent) == 2  # one retry, then give up
