@@ -36,7 +36,7 @@ class ProbeLimits:
     max_redirects: int = 3
     max_requests_total: int = 6
     max_requests_per_host: int = 5
-    timeout_seconds: float = 10.0
+    timeout_seconds: float = 20.0  # free hosts (Vercel, Render) cold-start in 10+ s; caps on count unchanged
     max_response_bytes: int = 256 * 1024
     max_request_body_bytes: int = 16 * 1024
 

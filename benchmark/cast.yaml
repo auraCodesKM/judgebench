@@ -1,8 +1,18 @@
 # Demo cast (§20.1): synthetic public repos under auraCodesKM, labelled for retrieval and agent tests.
 # relevant = file path prefixes that answer the query.
 repos:
-  alpha:   {url: https://github.com/auraCodesKM/team-alpha-docqa,   specialists: [rag_specialist, generic_specialist]}
-  beta:    {url: https://github.com/auraCodesKM/team-beta-insight,  specialists: [rag_specialist, generic_specialist]}
+  alpha:
+    url: https://github.com/auraCodesKM/team-alpha-docqa
+    specialists: [rag_specialist, generic_specialist]
+    answers:  # as a team would fill the Form; deployed on Vercel Hobby
+      deployed_url: https://team-alpha-docqa.vercel.app
+      sample_request: '{"method": "POST", "path": "/ask", "body": {"q": "how do I factory reset"}, "expect": ["sources"]}'
+  beta:
+    url: https://github.com/auraCodesKM/team-beta-insight
+    specialists: [rag_specialist, generic_specialist]
+    answers:
+      deployed_url: https://team-beta-insight.vercel.app
+      sample_request: '{"method": "POST", "path": "/ask", "body": {"q": "how long do refunds take"}, "expect": ["answer"]}'
   gamma:   {url: https://github.com/auraCodesKM/team-gamma-planner, specialists: [agentic_specialist, generic_specialist]}
   delta:   {url: https://github.com/auraCodesKM/team-delta-vision,  specialists: [ml_specialist, generic_specialist]}
   epsilon: {url: https://github.com/auraCodesKM/team-epsilon-notes, specialists: [generic_specialist]}
