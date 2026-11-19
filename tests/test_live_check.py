@@ -124,3 +124,13 @@ def test_wrong_answer_is_check_failed() -> None:
 def test_no_deployed_url() -> None:
     _, status, details = live_check_findings(FakeProbe(), None, None)
     assert status == CheckStatus.NOT_VERIFIABLE and "no deployed app" in details["summary"]
+
+
+def test_root_404_still_means_the_app_is_up() -> None:
+    probe = FakeProbe({"status": 404, "latency_ms": 90, "content_type": "application/json"})
+    findings, status, _ = live_check_findings(probe, APP, None)
+    health = next(f for f in findings if f.key == "live.health")
+    assert health.status == EvidenceStatus.OBSERVED and status == CheckStatus.PARTIALLY_VERIFIED
+    down = FakeProbe({"status": 502, "latency_ms": 90})
+    findings, status, _ = live_check_findings(down, APP, None)
+    assert status == CheckStatus.CHECK_FAILED

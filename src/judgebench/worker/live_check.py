@@ -197,7 +197,9 @@ def live_check_findings(
         code, ms = int(out["status"]), int(out.get("latency_ms") or 0)
         body = (out.get("body_excerpt") or "").lower()
         missing = [e for e in sample.expect if e.lower() not in body] if i else []
-        ok = 200 <= code < 400 and not missing
+        # Reachability (first request): any answer below 500 means the app is up; an API's bare root
+        # commonly returns 404. The sample query must succeed (2xx/3xx) with the expected text.
+        ok = (200 <= code < 400 and not missing) if i else code < 500
         in_code = bool(i) and route_in_code(root, urlsplit(req["url"]).path)
         obs = f"{loc[5:]} -> {code} in {ms} ms ({out.get('content_type') or 'no content type'})"
         if missing:
