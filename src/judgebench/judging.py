@@ -62,9 +62,19 @@ _IDS = re.compile(
 )
 
 
+_KEY = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in sorted(NAMES, key=len, reverse=True)) + r")\b")  # exact keys only
+_ARROW = re.compile(r"-> (\d{3}) in (\d+) ms(?: \([^)]*\))?")
+
+
 def dejargon(text: str) -> str:
-    """Drop internal references a judge can't use: "(E9)", "(E1, E4)", "C1 claims ..."."""
-    t = _IDS.sub(" ", text or "")
+    """Drop internal references a judge can't use: "(E9)", "(E1, E4)", "C1 claims ...", evidence keys
+    ("live.sample_query" -> "the live sample request"), raw check lines ("-> 200 in 8554 ms" -> "answered in 8.6 s")."""
+    t = _KEY.sub(
+        lambda m: "the " + NAMES.get(m.group(0), m.group(0).split(".")[-1].replace("_", " ")).lower(), text or ""
+    )
+    t = _ARROW.sub(lambda m: f"answered in {int(m.group(2)) / 1000:.1f} s", t)
+    t = _IDS.sub(" ", t)
+    t = re.sub(r"([.!?])([;,])", r"\2", t)  # "second).;" -> "second);"
     return re.sub(r"\s+([.,;:])(?=\s|$)", r"\1", " ".join(t.split()))  # "x ." -> "x.", never ".github"
 
 

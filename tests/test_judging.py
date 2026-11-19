@@ -117,3 +117,15 @@ def test_overlong_model_output_is_cut_not_rejected() -> None:
     )
     assert len(r.criteria[0].rationale) == 1200 and len(r.criteria[0].missing_evidence) == 5
     assert len(r.suggested_questions) == 3 and len(r.suggested_questions[0].question) == 300
+
+
+def test_raw_evidence_lines_become_plain_words() -> None:
+    from judgebench.judging import dejargon
+
+    q = ("Your README claims Answers in real time (under 1 second).; live.sample_query found POST /ask -> 200 in "
+         "8554 ms (application/json); route found in code.")  # fmt: skip
+    assert dejargon(q) == (
+        "Your README claims Answers in real time (under 1 second); the live sample request found POST /ask "
+        "answered in 8.6 s; route found in code."
+    )
+    assert dejargon("see app.py and rag.py") == "see app.py and rag.py"  # file names untouched
