@@ -9,6 +9,8 @@
   reevaluate <slug> <team>  re-run a team's latest submission as the next version
   team-codes <slug> --count N   generate codes for registered teams (printable list)
   replay <run> --into <demo> [--speed X]   replay a stored run into a demo channel + workbook
+  reset-demo <slug>         wipe a demo event back to empty (re-takes)
+  demo-preflight <slug>     everything a live demo take needs; prints READY
   purge <slug> --team T     remove a team completely (dry runs, test submissions)
   explain <slug>            per team: claims, checks, critic changes, tools, scope
   agreement <slug>          AI vs human judge scores per criterion
@@ -252,6 +254,115 @@ def cmd_replay(args: argparse.Namespace) -> None:
     print(f"{r.label}: {r.messages} messages, {r.teams} team(s) replayed; Copilot access for {granted} new judge(s)")
 
 
+def cmd_reset_demo(args: argparse.Namespace) -> None:
+    from judgebench.demo import require_demo, reset_demo
+    from judgebench.google import workspace
+    from judgebench.google.layout import apply_layout
+    from judgebench.telegram.notify import TelegramBot
+
+    cfg = settings()
+    google = workspace.session(Path(cfg.google_token_file))
+    bot = TelegramBot(cfg.telegram_bot_token or "", min_gap=0.3)
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        require_demo(event)
+        if (
+            not args.yes
+            and input(f"Wipe demo event {args.slug} (teams, its Telegram posts, workbook rows)? [y/N] ") != "y"
+        ):
+            sys.exit("cancelled")
+
+        def clear(sid: str) -> None:
+            for tab in workspace.TABS:
+                if tab in workspace.JUDGE_EDITABLE:
+                    workspace._call(google, "POST", f"{workspace.SHEETS}/{sid}/values/'{tab}'!A2:Z:clear", json={})
+                else:
+                    workspace.write_tab(google, sid, tab, [])
+            apply_layout(google, sid)
+            workspace.set_title(google, sid, f"{event.name}: judging")
+
+        r = reset_demo(s, event, lambda c, m: bot.delete(c, m), clear)
+        s.commit()
+    print(
+        f"{args.slug} reset: {r.teams} team(s) removed, Telegram {r.telegram_deleted} post(s) deleted"
+        + (f", {r.telegram_failed} could not be deleted (delete them by hand)" if r.telegram_failed else "")
+        + ". Workbook empty and formatted; earlier Form responses will not be re-read."
+    )
+
+
+def cmd_demo_preflight(args: argparse.Namespace) -> None:
+    import httpx
+    import yaml
+
+    from judgebench.demo import Preflight, event_empty, quota_check, require_demo
+    from judgebench.google import workspace
+    from judgebench.worker.live_check import InProcessProbe
+
+    cfg, p = settings(), Preflight()
+    with sessions()() as s:
+        event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
+        require_demo(event)
+        book = s.scalars(
+            select(EventIntegration).where(
+                EventIntegration.event_id == event.id, EventIntegration.provider == "google_sheets"
+            )
+        ).one()
+        rows = -1
+        try:
+            google = workspace.session(Path(cfg.google_token_file))
+            rows = len(workspace.read_tab(google, book.external_ids["spreadsheet_id"], "Leaderboard")) - 1
+            p.ok.append("Google auth ok, workbook readable")
+        except Exception as exc:  # noqa: BLE001 - reported, never raised
+            p.problems.append(f"Google: {type(exc).__name__} (run `judgebench auth-google`)")
+        tg = cfg.telegram_bot_token or ""
+        try:
+            chat = httpx.get(
+                f"https://api.telegram.org/bot{tg}/getChat", params={"chat_id": event.telegram_chat_id}, timeout=15
+            ).json()
+            p.check(
+                bool(chat.get("ok")),
+                f'Telegram: bot can reach "{chat.get("result", {}).get("title", "?")}"',
+                "Telegram: bot cannot reach the demo chat (admin with Post Messages?)",
+            )
+        except httpx.HTTPError as exc:
+            p.problems.append(f"Telegram: {type(exc).__name__}")
+        try:
+            gh = httpx.get(
+                "https://api.github.com/rate_limit",
+                headers={"Authorization": f"Bearer {cfg.github_token}"} if cfg.github_token else {},
+                timeout=15,
+            ).json()
+            left = gh["resources"]["core"]["remaining"]
+            p.check(
+                left >= 100, f"GitHub: {left} requests left this hour", f"GitHub: only {left} requests left this hour"
+            )
+        except Exception as exc:  # noqa: BLE001
+            p.problems.append(f"GitHub: {type(exc).__name__}")
+        p.check(
+            cfg.llm_mode == "gemini_free",
+            "LLM_MODE=gemini_free",
+            f"LLM_MODE={cfg.llm_mode}: start with LLM_MODE=gemini_free",
+        )
+        p.check(cfg.telegram_mode == "compact", "TELEGRAM_MODE=compact", f"TELEGRAM_MODE={cfg.telegram_mode}")
+        p.check(bool(cfg.gemini_api_key), "GEMINI_API_KEY set", "GEMINI_API_KEY missing in .env")
+        quota_check(p, s, cfg.gemini_free_model, teams=args.teams)
+        teams = yaml.safe_load(Path("benchmark/demo_teams.yaml").read_text())
+        for t in teams:
+            if url := t.get("deployed_url"):
+                out = InProcessProbe().probe([{"method": "GET", "url": url.rstrip("/") + "/health"}])[0]
+                if out.get("error"):  # cold: the first request wakes it
+                    out = InProcessProbe().probe([{"method": "GET", "url": url.rstrip("/") + "/health"}])[0]
+                p.check(
+                    out.get("status") == 200,
+                    f"{t['team_name']} app warm ({out.get('latency_ms')} ms)",
+                    f"{t['team_name']} app {url}: {out.get('status') or out.get('error')}",
+                )
+        event_empty(p, s, event, max(rows, 0))
+    print(p.render())
+    if p.problems:
+        sys.exit(1)
+
+
 def cmd_purge(args: argparse.Namespace) -> None:
     from judgebench.admin import purge_team
     from judgebench.telegram.notify import TelegramBot
@@ -378,6 +489,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--into", required=True, help="an empty demo event (own channel + workbook)")
     p.add_argument("--speed", type=float, default=10.0)
     p.set_defaults(fn=cmd_replay)
+    p = sub.add_parser("reset-demo")
+    p.add_argument("slug")
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(fn=cmd_reset_demo)
+    p = sub.add_parser("demo-preflight")
+    p.add_argument("slug")
+    p.add_argument("--teams", type=int, default=1, help="teams the take will submit (quota check)")
+    p.set_defaults(fn=cmd_demo_preflight)
     p = sub.add_parser("purge")
     p.add_argument("slug")
     p.add_argument("--team", action="append", required=True)
