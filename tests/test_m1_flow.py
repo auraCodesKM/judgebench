@@ -47,10 +47,10 @@ def test_form_submission_to_telegram_and_leaderboard(session_factory: sessionmak
     # one loop iteration of `judgebench run`, twice (the second must be a no-op)
     for _ in range(2):
         sync_event(session, event, lambda fid, since: [response("r1", "Team Alpha")])
-        drain(session, bot)
+        drain(session, bot, mode="stages")
         while run_profile_stage(session_factory, FakeGitHub()):
             pass
-        drain(session, bot)
+        drain(session, bot, mode="stages")
         sync_workbook(session, event, sheet.read, sheet.write)
 
     assert len(telegram) == 2  # exactly one message per stage, nothing re-sent

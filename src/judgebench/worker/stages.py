@@ -43,6 +43,7 @@ from judgebench.db.models import (
     CriterionScore,
     Evaluation,
     Event,
+    EventIntegration,
     Evidence,
     Notification,
     RepositoryProfileRow,
@@ -53,7 +54,7 @@ from judgebench.db.models import (
 from judgebench.errors import StageError
 from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
-from judgebench.judging import clip, render_question, template_questions
+from judgebench.judging import clip, render_question, sentence, template_questions, top_concern
 from judgebench.retrieval import Embedder, HashingEmbedder, Piece, chunk_repository, default_embedder, index_pieces
 from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
@@ -561,6 +562,10 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     ]
     summary = ", ".join(f"{counts[k]} {label}" for k, label in labels if counts[k])
     _notify(session, sub, "CLAIMS", f"Claims: {len(claims)} extracted" + (f", {summary}" if summary else ""))
+    for v in state.get("verdicts", []):  # a judge must notice these: a separate Telegram message each
+        if v["status"] == "CONTRADICTED":
+            text = next(c.text for c in claims if c.id == v["claim_id"])
+            _notify(session, sub, "ALERT", f'Claim contradicted: "{clip(text, 90)}". {sentence(v["rationale"], 180)}')
     _persist_usage(session, sub, meter, "EVALUATING", evaluation.id)
     transition(
         session,
@@ -678,6 +683,7 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         "COST",
         f"Cost: {_cost(mock, free, int(usage[0]), float(usage[1]))}, end-to-end {_fmt_duration(sub.created_at)}",
     )
+    _notify(session, sub, "CARD", _card(session, sub, evaluation, list(rows.values()), cfg, max_total, usage))
     transition(
         session,
         sid,
@@ -686,6 +692,37 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         message=None,
         detail={"total": total, "confidence": confidence, "revisions": len(messages)},
     )
+
+
+def _card(
+    session: Session,
+    sub: Submission,
+    evaluation: Evaluation,
+    scores: list[CriterionScore],
+    cfg: EventConfig,
+    max_total: int,
+    usage: Any,
+) -> str:
+    """The per-team summary judges read in Telegram: all from stored rows, nothing generated here."""
+    attempt = sub.source_hashes.get("evidence_attempt")
+    evidence = list(
+        session.scalars(select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt))
+    )
+    claims = list(session.scalars(select(Claim).where(Claim.submission_id == sub.id)))
+    concern = top_concern(claims, evidence, scores, {c.id: c.name for c in cfg.rubric})
+    book = session.scalars(
+        select(EventIntegration).where(
+            EventIntegration.event_id == sub.event_id, EventIntegration.provider == "google_sheets"
+        )
+    ).first()
+    lines = [
+        f"Summary: {evaluation.total_score:g}/{max_total} · confidence {evaluation.confidence} · {display(evaluation.model)}",
+        f"Top concern: {concern}" if concern else "",
+        f"Ask: {evaluation.suggested_questions[0]}" if evaluation.suggested_questions else "",
+        f"Cost: {_cost(is_mock(evaluation.model), is_free(evaluation.model), int(usage[0]), float(usage[1]))}",
+        f"Sheet: {book.external_ids['url']}" if book and book.external_ids.get("url") else "",
+    ]
+    return "\n".join(line for line in lines if line)
 
 
 def _cost(mock: bool, free: bool, tokens: int, usd: float) -> str:

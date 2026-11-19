@@ -31,7 +31,8 @@ class Settings:
     google_cloud_location: str
     llm_mode: str  # offline (default, mock, $0) | gemini_free (AI Studio free tier, demo cast only) | vertex (billed)
     gemini_api_key: str | None
-    gemini_free_model: str  # LLM_MODE=gemini_free uses this for every agent (see DECISIONS.md)
+    gemini_free_model: str
+    telegram_mode: str  # compact (default: one edited message per team + alerts) | stages (debug)  # LLM_MODE=gemini_free uses this for every agent (see DECISIONS.md)
 
 
 @cache
@@ -58,6 +59,7 @@ def settings() -> Settings:
         llm_mode=_choice(env("LLM_MODE", "offline"), {"offline", "gemini_free", "vertex"}, "LLM_MODE"),
         gemini_api_key=env("GEMINI_API_KEY") or None,
         gemini_free_model=env("GEMINI_FREE_MODEL", "gemini-3.5-flash-lite"),
+        telegram_mode=_choice(env("TELEGRAM_MODE", "compact"), {"compact", "stages"}, "TELEGRAM_MODE"),
     )
 
 
