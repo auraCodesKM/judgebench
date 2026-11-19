@@ -28,8 +28,12 @@ class EventScope:
         raise AccessDenied(f"{self.actor} may not access event {event_id}")
 
     def find_team(self, session: Session, name: str) -> Team | None:
+        """A judge in several events: the same name may exist in more than one; the newest team wins
+        (the event being judged now), deterministically."""
         return session.scalars(
-            select(Team).where(Team.event_id.in_(self.event_ids), Team.name_key == name.casefold())
+            select(Team)
+            .where(Team.event_id.in_(self.event_ids), Team.name_key == name.casefold())
+            .order_by(Team.created_at.desc(), Team.id)
         ).first()
 
     def submissions(self, session: Session) -> Sequence[Submission]:

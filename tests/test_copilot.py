@@ -64,3 +64,19 @@ def test_internal_drain_fails_closed_on_cloud_run_without_auth_config(monkeypatc
     monkeypatch.setenv("INTERNAL_AUDIENCE", "https://jb-telegram.example")
     r = TestClient(tg.app).post("/internal/notifications/drain", headers={"Authorization": "Bearer forged"})
     assert r.status_code == 401
+
+
+@pytest.mark.db
+def test_same_team_name_in_two_events_resolves_to_the_newest(session: Session) -> None:
+    from datetime import timedelta
+
+    from judgebench.db.scope import EventScope
+    from tests.conftest import make_event, make_team
+
+    old_ev, new_ev = make_event(session, "old"), make_event(session, "new")
+    old, new = make_team(session, old_ev, "Team Alpha"), make_team(session, new_ev, "Team Alpha")
+    session.flush()
+    old.created_at = new.created_at - timedelta(days=2)
+    session.flush()
+    scope = EventScope(actor="t", event_ids=frozenset({old_ev.id, new_ev.id}))
+    assert scope.find_team(session, "team alpha").event_id == new_ev.id  # type: ignore[union-attr]
