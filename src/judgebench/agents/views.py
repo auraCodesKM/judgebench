@@ -34,8 +34,8 @@ class ClaimView:
 def evidence_block(ev: list[EvidenceView], prefixes: tuple[str, ...] = ()) -> str:
     rows = [e for e in ev if not prefixes or e.key.startswith(prefixes)]
     lines = [
-        f"{e.id} [{e.source_type}/{e.status}{'/behavioural' if e.behavioural else ''}] {e.key} @ {e.locator}: "
-        f"{e.observation}"
+        f"{e.id} [{e.source_type}/{e.status}{'/behavioural' if e.behavioural else ''}]"
+        f"{f' ({e.criterion})' if e.criterion else ''} {e.key} @ {e.locator}: {e.observation}"
         for e in rows
     ]
     return fence("evidence", "\n".join(lines) or "(no evidence)")

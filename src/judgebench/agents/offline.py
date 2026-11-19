@@ -19,7 +19,6 @@ OFFLINE_MODEL = "offline-mock"
 MOCK = "[offline mock] "
 Handler = Callable[["Seen"], dict[str, Any] | str | types.FunctionCall]
 _NAME = re.compile(r'internal name is "([^"]+)"')
-_EVIDENCE = re.compile(r"^(E\d+) \[[a-z_]+/([A-Z_]+)", re.M)
 
 
 class Seen:
@@ -114,24 +113,31 @@ def _investigator(s: Seen) -> dict[str, Any] | types.FunctionCall:
     }
 
 
+_LINE = re.compile(r"^(E\d+) \[[a-z_]+/([A-Z_]+)[a-z/]*\](?: \(([a-z_]+)\))? \S+ @ \S+: (.*)$", re.M)
+
+
 def _evaluator(s: Seen) -> dict[str, Any]:
-    """Score = max x share of collected evidence that is OBSERVED/VERIFIED. A placeholder, not a judgement."""
-    ev = _EVIDENCE.findall(s.text)
-    good = [i for i, st in ev if st in ("OBSERVED", "VERIFIED")]
-    share = len(good) / len(ev) if ev else 0.0
-    return {
-        "criteria": [
+    """Per criterion: score = max x share of its evidence that is OBSERVED/VERIFIED; rationale = one
+    sentence quoting that evidence. A deterministic placeholder, labelled [template], not a judgement."""
+    lines = _LINE.findall(s.text)
+    criteria = []
+    for cid, mx in s.criteria():
+        mine = [(i, st, obs) for i, st, c, obs in lines if c == cid] or [(i, st, obs) for i, st, _, obs in lines]
+        good = [(i, obs) for i, st, obs in mine if st in ("OBSERVED", "VERIFIED")]
+        bad = [obs for _, st, obs in mine if st in ("MISSING", "CONTRADICTED")]
+        share = len(good) / len(mine) if mine else 0.0
+        said = "; ".join(o.rstrip(".") for _, o in good[:2]) or "no supporting evidence found"
+        gap = f"; missing: {bad[0].rstrip('.')}" if bad else ""
+        criteria.append(
             {
                 "criterion_id": cid,
                 "score": round(mx * share),
-                "rationale": MOCK + f"heuristic: {len(good)} of {len(ev)} evidence items observed; not a judgement",
-                "evidence_ids": good[:4],
+                "rationale": f"[template] {said}{gap}."[:300],
+                "evidence_ids": [i for i, _ in good[:4]],
                 "confidence": 0.1,
             }
-            for cid, mx in s.criteria()
-        ],
-        "suggested_questions": [],
-    }
+        )
+    return {"criteria": criteria, "suggested_questions": []}
 
 
 def _copilot(s: Seen) -> str:

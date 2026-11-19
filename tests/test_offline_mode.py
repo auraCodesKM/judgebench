@@ -54,7 +54,7 @@ def test_offline_pipeline_is_labelled_mock(session_factory: sessionmaker[Session
         "CONTRADICTED",
     }
     assert all(
-        c.rationale.startswith("[offline mock]") for c in session.query(m.CriterionScore).filter_by(evaluation_id=ev.id)
+        c.rationale.startswith("[template] ") for c in session.query(m.CriterionScore).filter_by(evaluation_id=ev.id)
     )
     tabs = build_tabs(session, sub.event_id)
     [row] = tabs["Leaderboard"].values()

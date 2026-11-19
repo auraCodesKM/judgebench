@@ -64,9 +64,14 @@ class CriterionResult(BaseModel):
     suggested_question: str | None = Field(default=None, max_length=300)
 
 
+class SuggestedQuestion(BaseModel):
+    question: str = Field(max_length=300, description="Specific to this team; quote the claim or finding")
+    evidence_ids: list[str] = Field(description="The evidence that prompted it (E3, ...); required")
+
+
 class RubricResult(BaseModel):
     criteria: list[CriterionResult]
-    suggested_questions: list[str] = Field(default=[], max_length=5)
+    suggested_questions: list[SuggestedQuestion] = Field(default=[], max_length=3)
 
 
 class Revision(BaseModel):

@@ -28,7 +28,7 @@ def test_explain_names_a_leak(session_factory: sessionmaker[Session], session: S
         from tests.fake_llm import evaluator
 
         out = evaluator(s)
-        out["suggested_questions"] = ["Why is Team Beta ahead of you?"]
+        out["suggested_questions"] = [{"question": "Why is Team Beta ahead of you?", "evidence_ids": s.ids("E")[:1]}]
         return out
 
     a = submit(session, "Team Alpha")

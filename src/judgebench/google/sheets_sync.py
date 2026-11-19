@@ -43,6 +43,7 @@ from judgebench.db.models import (
     Team,
 )
 from judgebench.google.workspace import JUDGE_EDITABLE, KEY, TABS, Link, link, links
+from judgebench.judging import clip, finding_name, sentence, top_concern
 from judgebench.worker.github import parse_repo_url
 
 Cell = str | int | float | Link
@@ -148,11 +149,6 @@ def _rubric(event: Event) -> tuple[list[Any], list[str]]:
         return list(DEFAULT_RUBRIC), []
 
 
-def _one_line(text: str, limit: int = 180) -> str:
-    first = re.split(r"(?<=[.!?])\s", (text or "").strip().replace("\n", " "), maxsplit=1)[0]
-    return first if len(first) <= limit else first[: limit - 1] + "…"
-
-
 def _source(e: Evidence, sub: Submission) -> tuple[str, str | None]:
     """(label, https link) for an evidence item: GitHub file#line at the pinned commit, CI run, app, video."""
     ref = parse_repo_url(sub.repo_url or "")
@@ -181,23 +177,19 @@ def _source(e: Evidence, sub: Submission) -> tuple[str, str | None]:
     return loc[:120], None
 
 
-def _finding_name(e: Evidence) -> str:
-    return e.claim or e.key.split(".", 1)[-1].replace("_", " ").replace(".", ": ")
-
-
-def _concern(sub: Submission, ev: Evaluation | None, scores: list[CriterionScore], claims: list[Claim]) -> str:
+def _concern(
+    sub: Submission,
+    ev: Evaluation | None,
+    scores: list[CriterionScore],
+    claims: list[Claim],
+    evidence: list[Evidence],
+    names: dict[str, str],
+) -> str:
     if ev is None:
         if sub.state.value == "FAILED":
-            return f"Not evaluated: {sub.error_category or 'failed'}"
+            return f"Not evaluated: {(sub.error_category or 'failed').replace('_', ' ')}"
         return f"Not evaluated yet ({sub.state.value.lower().replace('_', ' ')})"
-    if c := next((c for c in claims if c.verification_status == "CONTRADICTED"), None):
-        return _one_line(f'Claim contradicted: "{c.text[:80]}". {c.rationale or ""}')
-    if f := next((c for c in scores if c.flagged), None):
-        return _one_line(f"{f.criterion_id}: {f.critic_note or 'flagged by the critic'}")
-    weakest = min(scores, key=lambda c: c.score / c.max_score if c.max_score else 1, default=None)
-    if weakest is None:
-        return ""
-    return _one_line(f"Weakest: {weakest.criterion_id} {weakest.score:g}/{weakest.max_score:g}. {weakest.rationale}")
+    return top_concern(claims, evidence, scores, names)
 
 
 CONFIDENCE = {"high": "high", "medium": "med", "low": "low"}
@@ -247,9 +239,7 @@ def build_tabs(
         scored = ev is not None and ev.total_score is not None
         rank += scored
         ref = parse_repo_url(sub.repo_url or "")
-        questions = [str(q) for q in (ev.suggested_questions if ev else [])] or [
-            c.suggested_question for c in scores if c.suggested_question
-        ]
+        questions = [str(q) for q in (ev.suggested_questions if ev else [])]
         flags = sum(c.flagged for c in scores) + sum(c.verification_status == "CONTRADICTED" for c in claims)
         host = urlsplit(sub.deployed_url or "").hostname or ""
         tabs["Leaderboard"][f"team:{sub.team_id}"] = [
@@ -259,7 +249,7 @@ def build_tabs(
             ev.total_score if ev and ev.total_score is not None else "",
             CONFIDENCE.get(ev.confidence or "", ev.confidence or "") if ev else "",
             flags if ev else "",
-            _concern(sub, ev, scores, claims),
+            _concern(sub, ev, scores, claims, list(evidence.values()), names),
             questions[0] if questions else "",
             link(f"{ref.owner}/{ref.repo}", sub.repo_url) if ref else (sub.repo_url or ""),
             link("Watch", sub.demo_url) if sub.demo_url else "",
@@ -281,8 +271,8 @@ def build_tabs(
                 label, uri = _source(e, sub)
                 tabs["Evidence"][f"ev:{e.id}"] = [
                     team,
-                    _finding_name(e)[:200],
-                    e.observation[:400],
+                    finding_name(e),
+                    clip(e.observation, 300),
                     e.status,
                     link(label, uri),
                 ]
@@ -305,10 +295,10 @@ def build_tabs(
                 team,
                 names.get(c.criterion_id, c.criterion_id),
                 f"{c.score:g} / {c.max_score:g}",
-                _one_line(c.rationale),
+                sentence(c.rationale),
                 links([_source(evidence[i], sub) for i in c.evidence_ids if i in evidence][:4]),
                 note,
-                c.suggested_question or "",
+                "",  # questions live in the team row: 3, grounded in evidence
             ]
 
     team_names = [t for t, *_ in teams]

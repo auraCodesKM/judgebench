@@ -270,7 +270,7 @@ def test_team_detail_and_leaderboard_for_judges(session_factory: sessionmaker[Se
 
     lb = tabs["Leaderboard"][f"team:{sub.team_id}"]
     assert lb[:4] == [1, "Team Alpha", "DocQA", ev.total_score]
-    assert lb[5] >= 1 and "model_quality" in lb[6]  # flagged score -> flag count + biggest concern
+    assert lb[5] >= 1 and lb[6].startswith("Model quality and evaluation: ")  # flag + named concern
     assert isinstance(lb[8], Link) and lb[8].text == "acme/demo" and str(lb[9]) == "Watch"
     assert all(not str(v).startswith(str(sub.id)) for v in lb)  # no internal IDs in judge-facing cells
     assert not any(str(e.id)[:8] in str(r) for e in session.query(m.Evidence) for r in tabs["Evidence"].values())

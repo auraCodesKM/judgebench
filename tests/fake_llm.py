@@ -81,10 +81,9 @@ def evaluator(s: Seen) -> dict[str, Any]:
             }
             for cid, mx in s.criteria()
         ],
-        "suggested_questions": [
-            "How did you evaluate retrieval?",
-            "What happens without the GPU?",
-            "Show a failure case.",
+        "suggested_questions": [  # one grounded, one citing nothing (must be dropped)
+            {"question": "Your eval script reports recall@5; on which split?", "evidence_ids": ev[:1]},
+            {"question": "Show a failure case.", "evidence_ids": []},
         ],
     }
 

@@ -53,6 +53,7 @@ from judgebench.db.models import (
 from judgebench.errors import StageError
 from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
+from judgebench.judging import clip, render_question, template_questions
 from judgebench.retrieval import Embedder, HashingEmbedder, Piece, chunk_repository, default_embedder, index_pieces
 from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
@@ -527,7 +528,7 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         model=runtime.model_name(deps.strong),
         status="draft",
         flags=flags,
-        suggested_questions=[str(q)[:300] for q in raw_questions][:5],
+        suggested_questions=_questions(session, sub, raw_questions, by_id),
     )
     session.add(evaluation)
     session.flush()
@@ -641,7 +642,7 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     confidence = overall_confidence(
         scores, list(evaluation.flags), any(e.behavioural and e.status == "VERIFIED" for e in evidence)
     )
-    questions = list(evaluation.suggested_questions) or [s.question for s in scores if s.question][:3]
+    questions = list(evaluation.suggested_questions)  # grounded (see _questions); never generic fallbacks
     evaluation.total_score, evaluation.confidence, evaluation.status = total, confidence, "ready"
     evaluation.suggested_questions = questions
     evaluation.flags = [*evaluation.flags, *messages]
@@ -691,6 +692,24 @@ def _cost(mock: bool, free: bool, tokens: int, usd: float) -> str:
     if mock:
         return "$0.00, offline mock (no model calls)"
     return f"{_fmt_tokens(tokens)} tokens, " + ("$0.00 (Gemini API free tier)" if free else f"${usd:.2f}")
+
+
+def _questions(session: Session, sub: Submission, raw: list[Any], by_id: dict[str, EvidenceView]) -> list[str]:
+    """3 questions for judges: the model's, only when they cite real evidence, then deterministic
+    templates over this team's evidence (labelled template). Each names what prompted it."""
+    out = []
+    for q in raw:
+        ids = [i for i in (q.get("evidence_ids") or []) if i in by_id] if isinstance(q, dict) else []
+        if ids and str(q.get("question", "")).strip():
+            loc = by_id[ids[0]].locator
+            out.append(render_question(clip(str(q["question"]), 240), loc.removeprefix("live:"), template=False))
+    attempt = sub.source_hashes.get("evidence_attempt")
+    evidence = list(
+        session.scalars(select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt))
+    )
+    claims = list(session.scalars(select(Claim).where(Claim.submission_id == sub.id)))
+    out += [render_question(q, src, template=True) for q, src in template_questions(claims, evidence, sub.deployed_url)]
+    return out[:3]
 
 
 # --- runner ----------------------------------------------------------------------------
