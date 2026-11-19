@@ -27,12 +27,13 @@ Files to have open: `DEMO_FORM_ANSWERS.md` (off-screen, to copy from), this shot
 cd ~/Desktop/judgeBench
 docker compose up -d --wait db
 uv run --env-file .env judgebench reset-demo demo-2026 --yes          # only if a previous take exists
-LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash uv run --env-file .env judgebench demo-preflight demo-2026
+LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash INVESTIGATOR_TOOL_BUDGET=6 TELEGRAM_MODE=compact \
+  uv run --env-file .env judgebench demo-preflight demo-2026
 ```
 Preflight must print **READY**. Then, in the off-screen terminal, start the agent **just before** you hit Submit:
 
 ```bash
-LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash TELEGRAM_MODE=compact \
+LLM_MODE=gemini_free GEMINI_FREE_MODEL=gemini-3.6-flash INVESTIGATOR_TOOL_BUDGET=6 TELEGRAM_MODE=compact \
   caffeinate -i uv run --env-file .env judgebench run --event demo-2026 --interval 10
 ```
 (Majority-of-3 claim voting is automatic with a model; `--event` keeps the loop on the demo event only.)
@@ -70,7 +71,8 @@ Flash-Lite keeps the 3.6 Flash quota for the evaluation. Other good questions:
 ## If something goes wrong mid-take
 
 - Stop the loop (Ctrl-C), then `judgebench reset-demo demo-2026 --yes`, run preflight again, and redo the take.
-  Each Beta take uses ~11–17 of the 20 daily `gemini-3.6-flash` requests, so plan **one** take per day;
+  Each Beta take uses ~15 of the 20 daily `gemini-3.6-flash` requests (17 at the default tool budget; retries
+  count too), so plan **one** take per day;
   rehearse with `GEMINI_FREE_MODEL=gemini-3.5-flash-lite` (500/day).
 - If the live check says "cold start: retried once", it still counts; preflight warms the apps beforehand.
 
