@@ -209,7 +209,8 @@ def claim_investigator(model: Model, meter: Meter, tools: list[Any]) -> LlmAgent
         generate_content_config=VERDICT_CONFIG,
         instruction=PREAMBLE + "Investigate each claim with a reason-act-observe loop: decide what would prove or "
         f"disprove it, call a tool to look, read the observation, and repeat. You have at most "
-        f"{INVESTIGATOR_TOOL_BUDGET} tool calls in total; stop as soon as every claim can be classified. "
+        f"{INVESTIGATOR_TOOL_BUDGET} tool calls in total; request every lookup you already know you need in the "
+        "same turn (they run together), and stop as soon as every claim can be classified. "
         + VERDICT_RULES
         + ' Final answer: only JSON {"verdicts": [{"claim_id": "C1", "status": "...", '
         '"evidence_ids": ["E3"], "code_refs": ["path#L10-L20"], "rationale": "..."}]}.',
@@ -324,7 +325,8 @@ class Orchestrator(BaseAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         selected = set(ctx.session.state.get("adapters", []))
         by_name = {a.name: a for a in self.sub_agents}
-        for name in [f"{a}_specialist" for a in ("rag", "agentic", "ml", "generic") if a in selected or a == "generic"]:
+        specific: list[str] = [a for a in ("rag", "agentic", "ml") if a in selected]
+        for name in [f"{a}_specialist" for a in specific or ["generic"]]:  # generic only when nothing specific
             if name in by_name:
                 async for event in by_name[name].run_async(ctx):
                     yield event
@@ -478,9 +480,8 @@ def valid_code_ref(root: Path, ref: str) -> bool:
 def orchestrator(
     adapters: list[str], cheap: Model, strong: Model, meter: Meter, tools: list[Any], votes: int = 1
 ) -> Orchestrator:
-    specialists = [
-        specialist(a, cheap, meter) for a in ("rag", "agentic", "ml", "generic") if a in adapters or a == "generic"
-    ]
+    specific: list[str] = [a for a in ("rag", "agentic", "ml") if a in adapters]
+    specialists = [specialist(a, cheap, meter) for a in specific or ["generic"]]
     return Orchestrator(
         name="orchestrator",
         sub_agents=[

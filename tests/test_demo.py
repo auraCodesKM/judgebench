@@ -79,7 +79,7 @@ def test_quota_estimate(session_factory: sessionmaker[Session], session: Session
     assert used == session.query(m.UsageRecord).count() > 0
     p = Preflight()
     quota_check(p, session, "gemini-3.6-flash", teams=1)
-    assert (20 - used >= 14) == (not p.problems)
+    assert (int((20 - used) * 0.9) >= 17) == (not p.problems)  # 10% kept back; 17 calls per team
     assert sub
 
 

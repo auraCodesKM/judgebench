@@ -3,20 +3,20 @@
 repos:
   alpha:
     url: https://github.com/auraCodesKM/team-alpha-docqa
-    specialists: [rag_specialist, generic_specialist]
+    specialists: [rag_specialist]
     answers:  # as a team would fill the Form; deployed on Vercel Hobby
       project_title: Orbit DocQA
       deployed_url: https://team-alpha-docqa.vercel.app
       sample_request: '{"method": "POST", "path": "/ask", "body": {"q": "how do I factory reset"}, "expect": ["sources"]}'
   beta:
     url: https://github.com/auraCodesKM/team-beta-insight
-    specialists: [rag_specialist, generic_specialist]
+    specialists: [rag_specialist]
     answers:
       project_title: InsightRAG
       deployed_url: https://team-beta-insight.vercel.app
       sample_request: '{"method": "POST", "path": "/ask", "body": {"q": "how long do refunds take"}, "expect": ["answer"]}'
-  gamma:   {url: https://github.com/auraCodesKM/team-gamma-planner, specialists: [agentic_specialist, generic_specialist], answers: {project_title: TripPlanner}}
-  delta:   {url: https://github.com/auraCodesKM/team-delta-vision,  specialists: [ml_specialist, generic_specialist], answers: {project_title: CropScan}}
+  gamma:   {url: https://github.com/auraCodesKM/team-gamma-planner, specialists: [agentic_specialist], answers: {project_title: TripPlanner}}
+  delta:   {url: https://github.com/auraCodesKM/team-delta-vision,  specialists: [ml_specialist], answers: {project_title: CropScan}}
   epsilon: {url: https://github.com/auraCodesKM/team-epsilon-notes, specialists: [generic_specialist], answers: {project_title: NoteGenie}}
   zeta:    {url: https://github.com/auraCodesKM/team-zeta-assistant, specialists: [generic_specialist], answers: {project_title: StudyBuddy}}
 queries:

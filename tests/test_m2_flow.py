@@ -135,7 +135,7 @@ def test_honest_rag_team_end_to_end(session_factory: sessionmaker[Session], sess
 
     # hierarchical delegation: only the profiled adapters' specialists ran
     agents = {s.agent for s in llm.seen}
-    assert {"rag_specialist", "generic_specialist"} <= agents and "ml_specialist" not in agents
+    assert "rag_specialist" in agents and not agents & {"ml_specialist", "generic_specialist"}  # specific only
 
     # demo was sent as a video part; never VERIFIED from the demo alone
     assert any(s.has_video for s in llm.seen if s.agent == "demo_analyst")

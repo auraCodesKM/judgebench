@@ -10,6 +10,7 @@ vertex       Vertex AI via ADC. Billed.
 
 import asyncio
 import contextvars
+import heapq
 import re
 import threading
 import time
@@ -43,6 +44,7 @@ FREE_TIER_REPOS = frozenset(
     )
 )
 _repo: contextvars.ContextVar[str | None] = contextvars.ContextVar("llm_repo", default=None)
+_priority: contextvars.ContextVar[float] = contextvars.ContextVar("llm_priority", default=0.0)
 
 
 def free_tier_allowed(repo_url: str | None) -> bool:
@@ -66,14 +68,16 @@ def require_allowed(repo_url: str | None) -> None:
 
 
 @contextmanager
-def submission_repo(repo_url: str | None) -> Iterator[None]:
-    """Every model call for a submission runs inside this; the free-tier model checks it."""
+def submission_repo(repo_url: str | None, priority: float = 0.0) -> Iterator[None]:
+    """Every model call for a submission runs inside this; the free-tier model checks it. `priority`
+    (the submission time) lets the rate limiter serve the earliest-submitted team first."""
     require_allowed(repo_url)
-    token = _repo.set(repo_url)
+    token, ptoken = _repo.set(repo_url), _priority.set(priority)
     try:
         yield
     finally:
         _repo.reset(token)
+        _priority.reset(ptoken)
 
 
 # Free-tier limits per model: (requests/minute, requests/day). Flash-Lite RPM measured 2026-11-19 from a 429's
@@ -94,20 +98,28 @@ class RateLimiter:
     def __init__(self, rpm: int) -> None:
         self.rpm, self.sent, self.retried = max(rpm, 1), 0, 0
         self._calls: deque[float] = deque()
+        self._waiting: list[tuple[float, int]] = []
+        self._seq = 0
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, priority: float = 0.0) -> None:
+        """Lowest `priority` first (the earliest-submitted team), then first come first served."""
+        with self._lock:
+            self._seq += 1
+            me = (priority, self._seq)
+            heapq.heappush(self._waiting, me)
         while True:
             with self._lock:
                 now = time.monotonic()
                 while self._calls and now - self._calls[0] >= 60:
                     self._calls.popleft()
-                if len(self._calls) < self.rpm:
+                if self._waiting[0] == me and len(self._calls) < self.rpm:
+                    heapq.heappop(self._waiting)
                     self._calls.append(now)
                     self.sent += 1
                     return
-                wait = 60 - (now - self._calls[0]) + 0.05
-            time.sleep(wait)
+                wait = 0.05 if self._waiting[0] != me else 60 - (now - self._calls[0]) + 0.05
+            time.sleep(min(wait, 1.0))
 
 
 _limiters: dict[str, RateLimiter] = {}
@@ -141,7 +153,7 @@ class FreeGemini(Gemini):
         llm_request.config.automatic_function_calling = types.AutomaticFunctionCallingConfig(disable=True)
         lim = limiter(self.model)
         for attempt in range(5):
-            lim.acquire()
+            lim.acquire(_priority.get())
             try:
                 async for r in super().generate_content_async(llm_request, stream):
                     yield r

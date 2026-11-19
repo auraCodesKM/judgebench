@@ -18,9 +18,9 @@ from tests.test_m2_flow import deps, submit
 pytestmark = pytest.mark.db
 RUNS = 4
 CASES = [
-    (Case("alpha-rag", ["rag_specialist", "generic_specialist"], ["search_code"]), repos.ALPHA_RAG),
-    (Case("gamma-agent", ["agentic_specialist", "generic_specialist"], ["search_code"]), repos.GAMMA_MULTI_AGENT),
-    (Case("ml", ["ml_specialist", "generic_specialist"], ["search_code"]), repos.ML_CLASSIFIER),
+    (Case("alpha-rag", ["rag_specialist"], ["search_code"]), repos.ALPHA_RAG),
+    (Case("gamma-agent", ["agentic_specialist"], ["search_code"]), repos.GAMMA_MULTI_AGENT),
+    (Case("ml", ["ml_specialist"], ["search_code"]), repos.ML_CLASSIFIER),
 ]
 
 
@@ -70,7 +70,7 @@ def test_bad_tool_arguments_fail_the_case(session_factory: sessionmaker[Session]
             )
         return {"verdicts": []}
 
-    case = Case("alpha-bad", ["rag_specialist", "generic_specialist"], ["search_code"])
+    case = Case("alpha-bad", ["rag_specialist"], ["search_code"])
     report = evaluate_case(
         session_factory,
         deps(repos.ALPHA_RAG, fake(claim_investigator=wanders)),
@@ -117,7 +117,7 @@ def test_refused_tool_calls_are_reported_not_counted_as_executed(
             return types.FunctionCall(name="search_code", args={"text": f"q{s.turn}"})
         return {"verdicts": []}
 
-    case = Case("alpha-greedy", ["rag_specialist", "generic_specialist"], ["search_code"])
+    case = Case("alpha-greedy", ["rag_specialist"], ["search_code"])
     report = evaluate_case(
         session_factory,
         deps(repos.ALPHA_RAG, fake(claim_investigator=greedy)),

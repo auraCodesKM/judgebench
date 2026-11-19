@@ -826,7 +826,11 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                     attempt=sub.attempts,
                 ) as stage_span:
                     # profiling is deterministic; every later stage may call a model
-                    with nullcontext() if state == State.RECEIVED else submission_repo(sub.repo_url):
+                    with (
+                        nullcontext()
+                        if state == State.RECEIVED
+                        else submission_repo(sub.repo_url, sub.submitted_at.timestamp())
+                    ):
                         work(session, sid, deps)
                     with tracing.span("evaluation.persist"):
                         session.commit()
