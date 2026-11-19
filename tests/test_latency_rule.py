@@ -18,10 +18,7 @@ def test_slow_answer_contradicts_a_real_time_claim() -> None:
     v = {"claim_id": "C1", "status": "UNVERIFIED", "evidence_ids": ["E2"], "rationale": "unclear"}
     out = latency_rule(claim("answers in real time"), v, {"_evidence": [ev("POST /ask -> 200 in 8528 ms (json)")]})
     assert out["status"] == "CONTRADICTED" and out["evidence_ids"] == ["E2", "E7"]
-    assert (
-        out["rationale"]
-        == "Rule: their app took 8.5 s to answer when I tried it. (The model alone had said unverified.)"
-    )
+    assert out["rationale"] == "Rule: their app took 8.5 s when I tried it. (The model alone had said unverified.)"
 
 
 def test_rule_does_not_fire_without_cause() -> None:

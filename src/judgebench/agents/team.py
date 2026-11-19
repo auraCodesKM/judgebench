@@ -438,7 +438,7 @@ def latency_rule(claim: ClaimView, verdict: dict[str, Any], state: Any) -> dict[
         m = _LATENCY.search(e.observation) if e.key == "live.sample_query" else None
         if m and m.group(1).startswith("2") and int(m.group(2)) > SLOW_MS:
             secs = int(m.group(2)) / 1000
-            note = f"Rule: their app took {secs:.1f} s to answer when I tried it."
+            note = f"Rule: their app took {secs:.1f} s when I tried it."
             return verdict | {
                 "status": "CONTRADICTED",
                 "evidence_ids": list(dict.fromkeys([*verdict.get("evidence_ids", []), e.id])),

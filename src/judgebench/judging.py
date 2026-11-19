@@ -133,11 +133,25 @@ def contradiction(claim: Any, team: str | None = None) -> str:
     return f'they say "{plain_claim(claim.text)}", but {lower_first(why)}.'
 
 
+def contradicted(claims: list[Any]) -> list[Any]:
+    """Contradicted claims, one per distinct reason, best first: measured (rule) findings, then the
+    shortest claim (it quotes cleanest)."""
+    out: dict[str, Any] = {}
+    ranked = sorted(
+        (c for c in claims if c.verification_status == "CONTRADICTED"),
+        key=lambda c: (not str(c.rationale or "").lstrip("[").split("] ")[-1].startswith("Rule:"), len(c.text)),
+    )
+    for c in ranked:
+        out.setdefault(sentence(c.rationale or "", 160).lower(), c)
+    return list(out.values())
+
+
 def top_concern(claims: list[Any], evidence: list[Any], scores: list[Any], names: dict[str, str]) -> str:
     """The one thing that stood out, from the strongest negative evidence. At most 20 words."""
     by = {e.key: e for e in evidence}
-    if c := next((c for c in claims if c.verification_status == "CONTRADICTED"), None):
-        return words(contradiction(c)[:1].upper() + contradiction(c)[1:])
+    if found := contradicted(claims):
+        text = contradiction(found[0])
+        return words(text[:1].upper() + text[1:])
     for key in ("live.sample_query", "live.health"):
         if (e := by.get(key)) and e.status == "CONTRADICTED":
             return words(f"Their live app gave the wrong answer when I tried it: {sentence(e.observation, 80)}")
@@ -169,7 +183,7 @@ def template_questions(claims: list[Any], evidence: list[Any], deployed_url: str
     out: list[tuple[str, str]] = []
     sample = by.get("live.sample_query")
     m = _MS.search(sample.observation) if sample else None
-    for c in claims:
+    for c in sorted(claims, key=lambda c: (c.verification_status != "CONTRADICTED", len(c.text))):
         claim = plain_claim(c.text)
         if c.verification_status == "CONTRADICTED" and _SPEED.search(c.text) and m and sample:
             secs = int(m.group(2)) / 1000

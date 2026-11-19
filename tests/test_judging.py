@@ -133,3 +133,20 @@ def test_raw_evidence_lines_become_plain_words() -> None:
         "answered in 8.6 s; route found in code."
     )
     assert dejargon("see app.py and rag.py") == "see app.py and rag.py"  # file names untouched
+
+
+def test_one_alert_per_reason_and_the_cleanest_claim() -> None:
+    from judgebench.judging import contradicted
+
+    rule = "[CONTRADICTED 3/3] Rule: their app took 8.7 s when I tried it."
+    claims = [
+        c("An AI assistant that answers customer-policy questions instantly from your documents", "CONTRADICTED", rule),
+        c("Answers in real time (under 1 second).", "CONTRADICTED", rule),
+        c("Fully tested and production ready.", "CONTRADICTED", "No test files exist in the repo."),
+        c("Production ready", "CONTRADICTED", "No test files exist in the repo."),
+    ]
+    picked = contradicted(claims)
+    assert [x.text for x in picked] == ["Answers in real time (under 1 second).", "Production ready"]
+    assert (
+        top_concern(claims, [], [], {}) == 'They say "Answers in real time", but their app took 8.7 s when I tried it.'
+    )

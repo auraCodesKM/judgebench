@@ -58,6 +58,7 @@ from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
 from judgebench.judging import (
     clip,
+    contradicted,
     contradiction,
     finding_name,
     friendly_model,
@@ -588,11 +589,17 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     ]
     summary = ", ".join(f"{counts[k]} {label}" for k, label in labels if counts[k])
     _notify(session, sub, "CLAIMS", f"Claims: {len(claims)} extracted" + (f", {summary}" if summary else ""))
-    for v in state.get("verdicts", []):  # a judge must notice these: a separate Telegram message each
-        if v["status"] == "CONTRADICTED":
-            text = next(c.text for c in claims if c.id == v["claim_id"])
-            claim = SimpleNamespace(text=text, rationale=v["rationale"])
-            _notify(session, sub, "ALERT", f"Heads up on {_team_name(session, sub)}: {contradiction(claim)}")
+    flagged = [  # a judge must notice these: one Telegram message per distinct reason
+        SimpleNamespace(
+            text=next(c.text for c in claims if c.id == v["claim_id"]),
+            rationale=v["rationale"],
+            verification_status="CONTRADICTED",
+        )
+        for v in state.get("verdicts", [])
+        if v["status"] == "CONTRADICTED"
+    ]
+    for claim in contradicted(flagged):
+        _notify(session, sub, "ALERT", f"Heads up on {_team_name(session, sub)}: {contradiction(claim)}")
     _persist_usage(session, sub, meter, "EVALUATING", evaluation.id)
     transition(
         session,
