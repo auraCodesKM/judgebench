@@ -88,6 +88,7 @@ FREE_LIMITS = {
     "gemini-3.6-flash": (5, 20),
     "gemini-3.8-flash": (5, 20),
 }
+RESERVE = 3  # slots per minute kept for the earliest active team
 _DELAY = re.compile(r"'retryDelay': '(\d+(?:\.\d+)?)s'")
 
 
@@ -99,6 +100,7 @@ class RateLimiter:
         self.rpm, self.sent, self.retried = max(rpm, 1), 0, 0
         self._calls: deque[float] = deque()
         self._waiting: list[tuple[float, int]] = []
+        self._active: dict[float, float] = {}  # priority -> last time it asked
         self._seq = 0
         self._lock = threading.Lock()
 
@@ -108,12 +110,17 @@ class RateLimiter:
             self._seq += 1
             me = (priority, self._seq)
             heapq.heappush(self._waiting, me)
+            self._active[priority] = time.monotonic()
         while True:
             with self._lock:
                 now = time.monotonic()
                 while self._calls and now - self._calls[0] >= 60:
                     self._calls.popleft()
-                if self._waiting[0] == me and len(self._calls) < self.rpm:
+                # The earliest-submitted active team may use every slot; later teams leave RESERVE free for it,
+                # so a burst of new arrivals can't stall the team the audience is watching.
+                active = [p for p, seen in self._active.items() if now - seen < 30]
+                limit = self.rpm if not active or priority <= min(active) else max(self.rpm - RESERVE, 1)
+                if self._waiting[0] == me and len(self._calls) < limit:
                     heapq.heappop(self._waiting)
                     self._calls.append(now)
                     self.sent += 1
