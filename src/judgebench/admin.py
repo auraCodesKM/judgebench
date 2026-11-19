@@ -44,7 +44,8 @@ def purge_team(session: Session, event: Event, team_name: str, delete_message: C
             failed += 1
     # Every table with a submission_id, whether or not its FK cascades (usage, audit, outbox, ...).
     for table in reversed(Base.metadata.sorted_tables):
-        if "submission_id" in table.c and table.name != "submissions":
+        # usage_records stay: spend history, and the free-tier quota estimate needs them after a reset
+        if "submission_id" in table.c and table.name not in ("submissions", "usage_records"):
             session.execute(delete(table).where(table.c.submission_id.in_(subs)))
     session.delete(team)
     session.add(

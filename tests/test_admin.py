@@ -31,7 +31,7 @@ def test_purge_removes_one_team_and_its_messages(session_factory: sessionmaker[S
     assert session.query(m.Team).filter_by(name="DRY RUN 1").count() == 0
     assert session.query(m.Submission).filter_by(id=dry.id).count() == 0
     for table in m.Base.metadata.sorted_tables:  # nothing anywhere still points at the purged submission
-        if "submission_id" in table.c:
+        if "submission_id" in table.c and table.name != "usage_records":
             assert not session.execute(table.select().where(table.c.submission_id == dry.id)).first(), table.name
     assert session.query(m.Submission).filter_by(id=keep.id).count() == 1  # the other team is untouched
     assert session.query(m.Evaluation).filter_by(submission_id=keep.id).count() == 1
@@ -39,3 +39,12 @@ def test_purge_removes_one_team_and_its_messages(session_factory: sessionmaker[S
     assert audit.detail == {"submissions": 1, "telegram_deleted": len(dry_msgs), "telegram_failed": 0}
     with pytest.raises(ValueError):
         purge_team(session, session.get_one(m.Event, dry.event_id), "nobody", lambda c, mid: True)
+
+
+def test_purge_keeps_usage_history(session_factory: sessionmaker[Session], session: Session) -> None:
+    sub = submit(session, "DRY RUN 2")
+    drive(session_factory, deps(repos.ALPHA_RAG, fake()))
+    used = session.query(m.UsageRecord).filter_by(submission_id=sub.id).count()
+    purge_team(session, session.get_one(m.Event, sub.event_id), "DRY RUN 2", lambda c, mid: True)
+    session.commit()
+    assert used > 0 and session.query(m.UsageRecord).filter_by(submission_id=sub.id).count() == used
