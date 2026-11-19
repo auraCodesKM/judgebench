@@ -89,7 +89,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     factory = sessions()
     google = workspace.session(Path(cfg.google_token_file))
     deps = Deps.from_settings()
-    bot = TelegramBot(cfg.telegram_bot_token)
+    bot = TelegramBot(cfg.telegram_bot_token, min_gap=3.0)  # ~20 posts/min per chat: Telegram's group limit
 
     def poll() -> None:
         with factory() as s:
@@ -211,7 +211,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
     cfg = settings()
     if not cfg.telegram_bot_token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set")
-    google, bot = workspace.session(Path(cfg.google_token_file)), TelegramBot(cfg.telegram_bot_token)
+    google, bot = workspace.session(Path(cfg.google_token_file)), TelegramBot(cfg.telegram_bot_token, min_gap=1.1)
     with sessions()() as s:
         source = s.scalars(select(Event).where(Event.slug == args.run)).one()
         demo = s.scalars(select(Event).where(Event.slug == args.into)).one()
@@ -232,9 +232,10 @@ def cmd_replay(args: argparse.Namespace) -> None:
         r = replay(
             s,
             source,
-            lambda text: (bot.send(chat, text), None)[1],
+            lambda text: bot.send(chat, text),
             lambda tabs: write_rows(lambda tab, rows: workspace.write_tab(google, sid, tab, rows), tabs),
             speed=args.speed,
+            edit=(lambda mid, text: bot.edit(chat, mid, text)) if settings().telegram_mode == "compact" else None,
         )
     print(f"{r.label}: {r.messages} messages, {r.teams} team(s) replayed")
 

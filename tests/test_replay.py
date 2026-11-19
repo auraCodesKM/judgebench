@@ -38,7 +38,12 @@ def test_replay_sends_only_stored_lines_and_fills_the_sheet(
     sent: list[str] = []
     writes: list[dict[str, Any]] = []
     sleeps: list[float] = []
-    r = replay(session, source, sent.append, writes.append, speed=5, sleep=sleeps.append)
+
+    def send(text: str) -> int:
+        sent.append(text)
+        return len(sent)
+
+    r = replay(session, source, send, writes.append, speed=5, sleep=sleeps.append)  # stages rendering
 
     stored = [format_message(teams[n.submission_id], n.text) for n in notes]
     assert sent[1:-1] == stored  # exactly the stored lines, in order, nothing generated
@@ -48,3 +53,25 @@ def test_replay_sends_only_stored_lines_and_fills_the_sheet(
     assert (r.messages, r.teams) == (len(stored), 2)
     assert [len(w["Leaderboard"]) for w in writes] == [1, 2]  # one team, then both
     assert writes[-1]["Leaderboard"] and all(k.startswith("team:") for k in writes[-1]["Leaderboard"])
+
+
+def test_compact_replay_edits_one_progress_message_per_team(
+    session_factory: sessionmaker[Session], session: Session
+) -> None:
+    a = submit(session, "Team A")
+    drive(session_factory, deps(repos.ALPHA_RAG, fake()))
+    source = session.get_one(m.Event, a.event_id)
+    sent: list[str] = []
+    edits: list[tuple[int, str]] = []
+
+    def send(text: str) -> int:
+        sent.append(text)
+        return len(sent)
+
+    replay(session, source, send, lambda tabs: None, sleep=lambda s: None, edit=lambda mid, t: edits.append((mid, t)))
+    stored = {n.text for n in session.query(m.Notification).filter(m.Notification.submission_id == a.id)}
+    progress = [t for t in sent if t.startswith("Team A\n")]
+    assert len(progress) == 1 and edits and all(mid == sent.index(progress[0]) + 1 for mid, _ in edits)
+    alerts = [t.removeprefix("[Team A] ") for t in sent if t.startswith("[Team A] ")]
+    assert alerts and set(alerts) <= stored  # every alert is a stored line, verbatim
+    assert any(t.startswith("Summary:") for t in alerts) and not any(t.startswith("Cost:") for t in alerts)
