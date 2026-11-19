@@ -414,7 +414,20 @@ def cmd_demo_submit(args: argparse.Namespace) -> None:
     with sessions()() as s:
         event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
     only = [t.strip() for t in args.teams.split(",")] if args.teams else None
-    demo_submit(sessions(), event, teams, cfg.team_codes, args.after, args.gap, only=only, rest=args.rest)
+
+    def responded() -> set[str]:  # team names in the Form's responses since the last reset
+        from judgebench.api.ingest import forms_integration, parse_response
+        from judgebench.google import workspace
+
+        with sessions()() as s:
+            f = forms_integration(s, s.scalars(select(Event).where(Event.slug == args.slug)).one())
+            form_id, qmap, since = f.external_ids["form_id"], f.external_ids["questions"], f.cursor.get("reset_at")
+        raw = workspace.list_responses(workspace.session(Path(settings().google_token_file)), form_id, since)
+        return {str(parse_response(r, qmap).answers.get("team_name", "")) for r in raw}
+
+    demo_submit(
+        sessions(), event, teams, cfg.team_codes, args.after, args.gap, only=only, rest=args.rest, responded=responded
+    )
 
 
 def cmd_purge(args: argparse.Namespace) -> None:

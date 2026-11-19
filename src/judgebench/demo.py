@@ -72,7 +72,7 @@ def reset_demo(
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     for integ in session.scalars(select(EventIntegration).where(EventIntegration.event_id == event.id)):
         if integ.provider == "google_forms":
-            integ.cursor = {"since": now}  # responses submitted before the reset stay in the Form, unread
+            integ.cursor = {"since": now, "reset_at": now}  # earlier responses stay in the Form, unread
         if integ.provider == "google_sheets":
             clear_workbook(integ.external_ids["spreadsheet_id"])
             integ.cursor = {}
@@ -187,6 +187,7 @@ def demo_submit(
     say: Callable[[str], None] = print,
     only: list[str] | None = None,
     rest: bool = False,
+    responded: Callable[[], set[str]] = set,
 ) -> list[str]:
     """Wait until `after`'s real Form submission has been ingested, then submit every other team, one per
     `gap` seconds, through the public Form. Returns the teams submitted."""
@@ -206,6 +207,7 @@ def demo_submit(
     if rest:  # off camera: everyone not in the event yet, no waiting
         with session_factory() as s:
             present = {n.lower() for n in s.scalars(select(Team.name).where(Team.event_id == event.id))}
+        present |= {n.lower() for n in responded()}  # in the Form already, maybe not ingested yet
         only = [
             t["team_name"]
             for t in teams
@@ -235,8 +237,13 @@ def demo_submit(
         waited += 3
     say(f"{after} arrived. Submitting the other teams, one every {gap:g} s.")
     done = []
-    for t, code in zip(teams, codes, strict=False):
-        if t["team_name"].lower() == after.lower() or (only is not None and t["team_name"] not in only):
+    coded = list(zip(teams, codes, strict=False))
+    if only is not None:  # in the order given
+        coded = sorted(
+            (tc for tc in coded if tc[0]["team_name"] in only), key=lambda tc: only.index(tc[0]["team_name"])
+        )
+    for t, code in coded:
+        if t["team_name"].lower() == after.lower():
             continue
         sleep(gap)
         status = post(uri, questions, t, code)

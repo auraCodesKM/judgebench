@@ -161,3 +161,20 @@ def test_demo_submit_teams_and_rest(session_factory: sessionmaker[Session], sess
         rest=True,
     )
     assert posted == []  # everyone is in already
+
+
+def test_demo_submit_keeps_the_given_team_order(session_factory: sessionmaker[Session], session: Session) -> None:
+    from judgebench.demo import demo_submit
+
+    sub = submit(session, "Team Beta")
+    event = session.get_one(m.Event, sub.event_id)
+    event.slug = "demo-z"
+    session.add(m.EventIntegration(tenant_id=event.tenant_id, event_id=event.id, provider="google_forms",
+                                   external_ids={"responder_uri": "https://f/viewform", "questions": {}}))  # fmt: skip
+    session.commit()
+    teams = [{"team_name": n} for n in ("Team Beta", "Team Alpha", "Team Epsilon", "Team Zeta")]
+    posted: list[str] = []
+    demo_submit(session_factory, event, teams, ["A111-1111"] * 4, "Team Beta", 0,
+                post=lambda u, q, t, c: posted.append(t["team_name"]) or 200, sleep=lambda s: None, say=lambda m: None,
+                only=["Team Zeta", "Team Epsilon"], timeout=0)  # fmt: skip
+    assert posted == ["Team Zeta", "Team Epsilon"]

@@ -96,3 +96,24 @@ def test_paths_keep_their_leading_dot() -> None:
         dejargon("Why no lock file? (E9) (from .github/workflows/test.yml)")
         == "Why no lock file? (from .github/workflows/test.yml)"
     )
+
+
+def test_overlong_model_output_is_cut_not_rejected() -> None:
+    from judgebench.agents.schemas import RubricResult
+
+    r = RubricResult.model_validate(
+        {
+            "criteria": [
+                {
+                    "criterion_id": "x",
+                    "score": 1,
+                    "rationale": "y" * 5000,
+                    "confidence": 0.5,
+                    "missing_evidence": ["m"] * 9,
+                }
+            ],
+            "suggested_questions": [{"question": "q" * 900, "evidence_ids": ["E1"]}] * 6,
+        }
+    )
+    assert len(r.criteria[0].rationale) == 1200 and len(r.criteria[0].missing_evidence) == 5
+    assert len(r.suggested_questions) == 3 and len(r.suggested_questions[0].question) == 300
