@@ -63,7 +63,7 @@ def sentence(text: str, n: int = 180) -> str:
     """First sentence, without vote/template prefixes."""
     t = _PREFIX.sub("", " ".join((text or "").split()))
     first = re.split(r"(?<=[.!?])\s", t, maxsplit=1)[0]
-    return clip(first, n)
+    return clip(first[:1].upper() + first[1:], n)
 
 
 def finding_name(e: Any) -> str:

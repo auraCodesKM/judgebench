@@ -14,7 +14,7 @@ import yaml
 from sqlalchemy.orm import Session, sessionmaker
 
 from judgebench.agent_eval import Case, CaseReport, evaluate_case
-from judgebench.db.models import Event, Submission, Team, Tenant, utcnow
+from judgebench.db.models import AuditEvent, Event, Notification, Submission, Team, Tenant, utcnow
 from judgebench.retrieval import Metrics, evaluate, hybrid_search
 from judgebench.states import State
 from judgebench.worker.stages import Deps
@@ -70,6 +70,17 @@ def run(
                 )
                 s.add(sub)
                 s.flush()
+                scope = {"tenant_id": event.tenant_id, "event_id": event.id, "submission_id": sub.id}
+                s.add(
+                    AuditEvent(
+                        **scope,
+                        actor="system:bench",
+                        action="state:RECEIVED",
+                        target=sub.form_response_id,
+                        detail={"version": 1, "late": False},
+                    )
+                )
+                s.add(Notification(**scope, stage="RECEIVED", text="Submission received (v1)"))  # as ingestion does
                 subs.setdefault(name, []).append(sub.id)
         s.commit()
         event_id = event.id

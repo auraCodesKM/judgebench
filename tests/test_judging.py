@@ -66,4 +66,4 @@ def test_concern_prefers_the_strongest_negative_evidence() -> None:
 
 
 def test_sentence_strips_vote_and_rule_prefixes() -> None:
-    assert sentence("[CONTRADICTED 3/3] Rule: measured 8.5 s. More detail here.") == "measured 8.5 s."
+    assert sentence("[CONTRADICTED 3/3] Rule: measured 8.5 s. More detail here.") == "Measured 8.5 s."

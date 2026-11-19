@@ -267,7 +267,7 @@ def link(text: str, uri: str | None) -> Link | str:
 
 def links(items: Sequence[tuple[str, str | None]], sep: str = "\n") -> Link | str:
     text, spans = "", []
-    for label, uri in items:
+    for label, uri in dict.fromkeys(items):  # same source cited twice: shown once
         if text:
             text += sep
         if u := safe_uri(uri):

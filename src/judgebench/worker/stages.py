@@ -731,6 +731,17 @@ def _cost(mock: bool, free: bool, tokens: int, usd: float) -> str:
     return f"{_fmt_tokens(tokens)} tokens, " + ("$0.00 (Gemini API free tier)" if free else f"${usd:.2f}")
 
 
+def _source_label(e: EvidenceView) -> str:
+    """Where a judge would look: "live check POST /ask", "CI run 123", "app.py#L10", "README.md"."""
+    if e.locator.startswith("live:"):
+        return f"live check {e.locator[5:]}"
+    if e.locator.startswith("ci:run/"):
+        return f"CI run {e.locator[7:]}"
+    if e.source_type == "demo":
+        return "demo video"
+    return e.locator
+
+
 def _questions(session: Session, sub: Submission, raw: list[Any], by_id: dict[str, EvidenceView]) -> list[str]:
     """3 questions for judges: the model's, only when they cite real evidence, then deterministic
     templates over this team's evidence (labelled template). Each names what prompted it."""
@@ -738,8 +749,7 @@ def _questions(session: Session, sub: Submission, raw: list[Any], by_id: dict[st
     for q in raw:
         ids = [i for i in (q.get("evidence_ids") or []) if i in by_id] if isinstance(q, dict) else []
         if ids and str(q.get("question", "")).strip():
-            loc = by_id[ids[0]].locator
-            out.append(render_question(clip(str(q["question"]), 240), loc.removeprefix("live:"), template=False))
+            out.append(render_question(clip(str(q["question"]), 240), _source_label(by_id[ids[0]]), template=False))
     attempt = sub.source_hashes.get("evidence_attempt")
     evidence = list(
         session.scalars(select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt))

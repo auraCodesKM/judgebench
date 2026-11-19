@@ -105,7 +105,7 @@ def test_judge_edits_survive_reevaluation(session_factory: sessionmaker[Session]
 
     assert sheet.cell("Team Detail", key, "Score / Max") == "14 / 20"  # never overwritten
     assert sheet.cell("Team Detail", key, "Critic note") == "Saw their eval notebook in person"
-    assert sheet.cell("Team Detail", key, "Reason") == "re-evaluated"  # untouched cells still refresh
+    assert sheet.cell("Team Detail", key, "Reason") == "Re-evaluated"  # untouched cells still refresh
     assert first.overrides == 2 and second.overrides == 0  # recorded once
     audit = session.query(m.AuditEvent).filter_by(action="sheet_override").all()
     assert {(a.detail["column"], a.detail["ai_value"], a.detail["human_value"]) for a in audit} == {
