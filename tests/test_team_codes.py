@@ -51,12 +51,15 @@ def test_team_code_rules(session: Session) -> None:
         a.target: a.detail["reason"] for a in session.query(m.AuditEvent).filter_by(action="submission_rejected")
     }
     assert rejected == {
-        "r3": "team code does not match this team",
-        "r4": "this team code belongs to another team",
-        "r5": "missing or unknown team code",
+        "r3": "the team code doesn't match this team",
+        "r4": "that team code belongs to another team",
+        "r5": "the team code is missing or wrong",
     }
     texts = [n.text for n in session.query(m.Notification).filter_by(stage="REJECTED")]
-    assert 'Rejected a submission for "Team Two": missing or unknown team code. Not evaluated.' in texts
+    assert (
+        "I couldn't accept a submission from \"Team Two\": the team code is missing or wrong. I didn't evaluate it."
+        in texts
+    )
 
     # polled again: nothing new, no repeated rejection messages
     assert ingest_responses(session, event, [resp("r3", "Team One", B), resp("r5", "Team Two", "x")], Q) == []

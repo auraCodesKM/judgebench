@@ -121,6 +121,6 @@ def announce_ready(session: Session, event: Event) -> None:
             event_id=event.id,
             submission_id=None,
             stage="EVENT_READY",
-            text=f"Event ready: {event.name}. Accepting submissions.",
+            text=f"{event.name} is open. I'll post here as teams submit.",
         )
     )

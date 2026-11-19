@@ -147,7 +147,7 @@ def test_honest_rag_team_end_to_end(session_factory: sessionmaker[Session], sess
     assert any(x.startswith("Demo check: claim") for x in out)
     assert any(x.startswith("Claims: ") and "extracted" in x for x in out)
     assert (
-        'Critic: "Model quality and evaluation 16/20" cited no evaluation evidence -> revised to 9/20, flagged for judges'
+        "Heads up on Team Alpha: I lowered model quality and evaluation from 16 to 9 (out of 20): nothing shows how they evaluated their model. (I revised it)"
         in out
     )
     assert any(x.startswith("Evaluation ready: ") and "/100 (confidence " in x for x in out)
@@ -202,7 +202,7 @@ def test_budget_exceeded_goes_to_human_review(
     drive(session_factory, deps(repos.ML_CLASSIFIER, fake()))
     session.refresh(sub)
     assert sub.state == State.REQUIRES_HUMAN
-    assert any("Token budget reached" in x for x in lines(session, sub))
+    assert any("needs a human look" in x for x in lines(session, sub))
 
 
 def test_usage_report_per_submission_and_agent(session_factory: sessionmaker[Session], session: Session) -> None:

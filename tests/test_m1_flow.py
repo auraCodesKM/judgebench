@@ -54,8 +54,8 @@ def test_form_submission_to_telegram_and_leaderboard(session_factory: sessionmak
         sync_workbook(session, event, sheet.read, sheet.write)
 
     assert len(telegram) == 2  # exactly one message per stage, nothing re-sent
-    assert telegram[0] == "[Team Alpha] Submission received (v1)"
-    assert telegram[1].startswith("[Team Alpha] Profiled (commit 3f2c1ab): Python")
+    assert telegram[0] == "Team Alpha: Submission received (v1)"
+    assert telegram[1].startswith("Team Alpha: Profiled (commit 3f2c1ab): Python")
     assert telegram[1].endswith("-> adapters: Agentic, RAG")
     assert sheet.writes.count("Leaderboard") == 1  # second iteration changed nothing, so no second write
     [_, row] = sheet.tabs["Leaderboard"]

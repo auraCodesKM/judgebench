@@ -45,17 +45,17 @@ def test_one_progress_message_per_team_then_edits(session_factory: sessionmaker[
             drain(s, bot, mode="compact")  # as `run` does after every stage
 
     texts = sends(calls)
-    progress = [t for t in texts if t.startswith("Team Alpha\n")]
+    progress = [t for t in texts if t.startswith("Team Alpha: ") and "\n" not in t]
     edits = [p for meth, p in calls if meth == "editMessageText"]
     assert len(progress) == 1 and len(edits) == 3  # one message; one edit per pipeline stage (coalesced)
     assert all(e["message_id"] == 1 for e in edits)
-    every_stage_but_ingestion = {s for s, _ in PROGRESS} - {"RECEIVED"}  # the test helper skips ingestion
+    every_stage_but_ingestion = {s for s, _, _ in PROGRESS} - {"RECEIVED"}  # the test helper skips ingestion
     assert edits[-1]["text"] == progress_text("Team Alpha", 1, every_stage_but_ingestion)
-    critic = [t for t in texts if "Critic:" in t]
-    card = [t for t in texts if "Summary:" in t]
-    assert len(critic) == 1 and "revised to 9/20" in critic[0]  # an alert: its own message
-    assert len(card) == 1 and "Top concern:" in card[0] and "Ask:" in card[0] and "Cost:" in card[0]
-    assert not any(t.startswith("[Team Alpha] Cost:") for t in texts)  # folded into the card
+    critic = [t for t in texts if "I lowered" in t]
+    card = [t for t in texts if "Checked by" in t]
+    assert len(critic) == 1 and "from 16 to 9" in critic[0]  # an alert: its own message
+    assert len(card) == 1 and "Stood out:" in card[0] and "Ask them:" in card[0] and "Cost" not in card[0]
+    assert not any("Cost:" in t for t in texts)  # judges don't need it
     assert len(texts) == 3  # progress + critic revision + card: nothing else
     session.expire_all()
     assert session.query(m.Notification).filter(m.Notification.sent_at.is_(None)).count() == 0
@@ -74,7 +74,7 @@ def test_batch_is_coalesced(session_factory: sessionmaker[Session], session: Ses
         while drain(s, recording_bot(calls), mode="compact", limit=100):
             pass
     texts = sends(calls)
-    assert len([t for t in texts if t.split("\n")[0] in ("Team A", "Team B", "Team C")]) == 3  # one per team
+    assert len([t for t in texts if t.split(":")[0] in ("Team A", "Team B", "Team C") and "\n" not in t]) == 3
     assert not [p for meth, p in calls if meth == "editMessageText"]  # all stages at once: no edits needed
     assert len(texts) == 9  # 3 x (progress + critic revision + card)
 
@@ -82,7 +82,10 @@ def test_batch_is_coalesced(session_factory: sessionmaker[Session], session: Ses
 def test_classification() -> None:
     assert classify("CI", "CI: passed") == {"progress"}
     assert classify("CRITIC", "Critic: all scores supported by cited evidence") == {"progress"}
-    assert classify("CRITIC", 'Critic: "x" -> revised to 9/20, flagged') == {"progress", "alert"}
+    assert classify("CRITIC", "Heads up on T: I lowered x from 16 to 9 (out of 20): y. (I revised it)") == {
+        "progress",
+        "alert",
+    }
     assert classify("ALERT", "Claim contradicted") == {"alert"} and classify("COST", "Cost") == {"silent"}
     assert classify("SOMETHING_NEW", "x") == {"alert"}  # unknown stages are shown, never dropped
 

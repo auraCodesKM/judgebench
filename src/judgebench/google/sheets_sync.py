@@ -43,7 +43,7 @@ from judgebench.db.models import (
     Team,
 )
 from judgebench.google.workspace import JUDGE_EDITABLE, KEY, TABS, Link, link, links
-from judgebench.judging import clip, dejargon, finding_name, sentence, top_concern
+from judgebench.judging import STATUS_LABEL, clip, dejargon, finding_name, question_text, sentence, top_concern, words
 from judgebench.worker.github import parse_repo_url
 
 Cell = str | int | float | Link
@@ -253,7 +253,7 @@ def build_tabs(
             CONFIDENCE.get(ev.confidence or "", ev.confidence or "") if ev else "",
             flags if ev else "",
             _concern(sub, ev, scores, claims, list(evidence.values()), names),
-            questions[0] if questions else "",
+            words(question_text(questions[0])) if questions else "",
             link(f"{ref.owner}/{ref.repo}", sub.repo_url) if ref else (sub.repo_url or ""),
             link("Watch", sub.demo_url) if sub.demo_url else "",
             link(host, sub.deployed_url) if host else "",
@@ -276,7 +276,7 @@ def build_tabs(
                     team,
                     finding_name(e),
                     clip(e.observation, 300),
-                    e.status,
+                    STATUS_LABEL.get(e.status, e.status.capitalize()),
                     link(label, uri),
                 ]
         if ev is None:
@@ -285,7 +285,7 @@ def build_tabs(
             team,
             "TEAM",
             f"{ev.total_score:g} / {max_total}" if scored else "",
-            f"Confidence {CONFIDENCE.get(ev.confidence or '', ev.confidence)}; evaluated by {display(ev.model)}",
+            f"{CONFIDENCE.get(ev.confidence or '', ev.confidence)} confidence",
             "",
             f"{flags} flag{'s' if flags != 1 else ''}" if flags else "",
             "\n".join(f"• {q}" for q in questions[:5]),
@@ -293,12 +293,12 @@ def build_tabs(
         for c in scores:
             note = dejargon(c.critic_note or "")
             if c.pre_critic_score is not None and c.pre_critic_score != c.score:
-                note = f"{c.pre_critic_score:g} → {c.score:g}: {note}".rstrip(": ")
+                note = f"Lowered {c.pre_critic_score:g} → {c.score:g}: {note}".rstrip(": ")
             tabs["Team Detail"][f"crit:{sub.id}:{c.criterion_id}"] = [
                 team,
                 names.get(c.criterion_id, c.criterion_id),
                 f"{c.score:g} / {c.max_score:g}",
-                sentence(c.rationale),
+                words(sentence(c.rationale), 25),
                 links([_source(evidence[i], sub) for i in c.evidence_ids if i in evidence][:4]),
                 note,
                 "",  # questions live in the team row: 3, grounded in evidence

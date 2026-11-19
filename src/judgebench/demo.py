@@ -203,7 +203,8 @@ def demo_submit(
             )
         ).one()
         uri, questions = forms.external_ids["responder_uri"], forms.external_ids["questions"]
-    started = datetime.now(UTC)
+    with session_factory() as s:  # the database's clock: submissions are stamped with it
+        started = s.scalar(select(func.now()))
     if rest:  # off camera: everyone not in the event yet, no waiting
         with session_factory() as s:
             present = {n.lower() for n in s.scalars(select(Team.name).where(Team.event_id == event.id))}

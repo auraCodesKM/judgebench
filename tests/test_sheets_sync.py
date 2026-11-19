@@ -110,7 +110,11 @@ def test_judge_edits_survive_reevaluation(session_factory: sessionmaker[Session]
     audit = session.query(m.AuditEvent).filter_by(action="sheet_override").all()
     assert {(a.detail["column"], a.detail["ai_value"], a.detail["human_value"]) for a in audit} == {
         ("Score / Max", "8 / 20", "14 / 20"),
-        ("Critic note", "16 → 8: cited no evaluation evidence", "Saw their eval notebook in person"),
+        (
+            "Critic note",
+            "Lowered 16 → 8: nothing shows how they evaluated their model",
+            "Saw their eval notebook in person",
+        ),
     }
     [review] = session.query(m.JudgeReview).all()  # picked by name in the dropdown, stored as the id
     assert (review.judge_label, review.criterion_id, review.human_scores, review.comments) == (
@@ -251,7 +255,7 @@ def test_team_detail_and_leaderboard_for_judges(session_factory: sessionmaker[Se
 
     row = tabs["Team Detail"][f"crit:{sub.id}:model_quality"]
     assert row[2] == "9 / 20"  # post-critic score
-    assert row[5] == "16 → 9: cited no evaluation evidence"  # the critic's change, with its reason
+    assert row[5] == "Lowered 16 → 9: nothing shows how they evaluated their model"  # the change and why
     assert tabs["Team Detail"][f"hdr:{sub.id}"][:3] == ["Team Alpha", "TEAM", f"{ev.total_score:g} / 100"]
     evidence_cells = [r[4] for k, r in tabs["Team Detail"].items() if k.startswith("crit:") and isinstance(r[4], Link)]
     assert any("github.com/acme/demo/actions/runs/7" in u for c in evidence_cells for *_, u in c.spans)

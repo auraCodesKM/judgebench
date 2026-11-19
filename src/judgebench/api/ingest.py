@@ -64,15 +64,15 @@ def _code_problem(session: Session, event: Event, name: str, code: str) -> str |
     if not codes:
         return None
     if code not in codes:
-        return "missing or unknown team code"
+        return "the team code is missing or wrong"
     h = _code_hash(event, code)
     key = " ".join(name.casefold().split())
     owner = session.scalars(select(Team).where(Team.event_id == event.id, Team.code_hash == h)).first()
     if owner is not None and owner.name_key != key:
-        return "this team code belongs to another team"
+        return "that team code belongs to another team"
     named = session.scalars(select(Team).where(Team.event_id == event.id, Team.name_key == key)).first()
     if named is not None and named.code_hash is not None and named.code_hash != h:
-        return "team code does not match this team"
+        return "the team code doesn't match this team"
     return None
 
 
@@ -106,7 +106,7 @@ def _reject(session: Session, event: Event, response_id: str, name: str, reason:
             tenant_id=event.tenant_id,
             event_id=event.id,
             stage="REJECTED",
-            text=f'Rejected a submission for "{name}": {reason}. Not evaluated.',
+            text=f"I couldn't accept a submission from \"{name}\": {reason}. I didn't evaluate it.",
         )
     )
     session.flush()

@@ -20,6 +20,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import func, select
@@ -55,7 +56,17 @@ from judgebench.db.models import (
 from judgebench.errors import StageError
 from judgebench.event_config import EventConfig
 from judgebench.evidence import EVALUATOR_VERSION, CheckStatus, EvidenceStatus, Finding, SourceType, sha256_file
-from judgebench.judging import clip, finding_name, render_question, sentence, template_questions, top_concern
+from judgebench.judging import (
+    clip,
+    contradiction,
+    finding_name,
+    friendly_model,
+    lower_first,
+    question_text,
+    render_question,
+    template_questions,
+    top_concern,
+)
 from judgebench.retrieval import Embedder, HashingEmbedder, Piece, chunk_repository, default_embedder, index_pieces
 from judgebench.states import State
 from judgebench.worker.ci import CiReader, ci_findings
@@ -580,7 +591,8 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     for v in state.get("verdicts", []):  # a judge must notice these: a separate Telegram message each
         if v["status"] == "CONTRADICTED":
             text = next(c.text for c in claims if c.id == v["claim_id"])
-            _notify(session, sub, "ALERT", f'Claim contradicted: "{clip(text, 90)}". {sentence(v["rationale"], 180)}')
+            claim = SimpleNamespace(text=text, rationale=v["rationale"])
+            _notify(session, sub, "ALERT", f"Heads up on {_team_name(session, sub)}: {contradiction(claim)}")
     _persist_usage(session, sub, meter, "EVALUATING", evaluation.id)
     transition(
         session,
@@ -670,9 +682,9 @@ def critique(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     session.flush()
 
     for m in messages[:3]:
-        _notify(session, sub, "CRITIC", f"Critic: {m}")
+        _notify(session, sub, "CRITIC", f"Heads up on {_team_name(session, sub)}: {m} (I revised it)")
     if not messages:
-        _notify(session, sub, "CRITIC", "Critic: all scores supported by cited evidence")
+        _notify(session, sub, "CRITIC", "Scores double-checked.")
     max_total = sum(c.weight for c in cfg.rubric)
     flagged = sum(s.flagged for s in scores)
     mock, free = is_mock(evaluation.model), is_free(evaluation.model)
@@ -718,7 +730,8 @@ def _card(
     max_total: int,
     usage: Any,
 ) -> str:
-    """The per-team summary judges read in Telegram: all from stored rows, nothing generated here."""
+    """The per-team summary: score, the one thing that stood out, the one question worth asking, the
+    Sheet. One honest footer naming the model. All from stored rows."""
     attempt = sub.source_hashes.get("evidence_attempt")
     evidence = list(
         session.scalars(select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt))
@@ -730,14 +743,19 @@ def _card(
             EventIntegration.event_id == sub.event_id, EventIntegration.provider == "google_sheets"
         )
     ).first()
+    question = question_text(str(evaluation.suggested_questions[0])) if evaluation.suggested_questions else ""
     lines = [
-        f"Summary: {evaluation.total_score:g}/{max_total} · confidence {evaluation.confidence} · {display(evaluation.model)}",
-        f"Top concern: {concern}" if concern else "",
-        f"Ask: {evaluation.suggested_questions[0]}" if evaluation.suggested_questions else "",
-        f"Cost: {_cost(is_mock(evaluation.model), is_free(evaluation.model), int(usage[0]), float(usage[1]))}",
+        f"{_team_name(session, sub)}: {evaluation.total_score:g}/{max_total} · {evaluation.confidence} confidence",
+        f"Stood out: {lower_first(concern)}" if concern else "",
+        f"Ask them: {question}" if question else "",
         f"Sheet: {book.external_ids['url']}" if book and book.external_ids.get("url") else "",
+        f"Checked by {friendly_model(evaluation.model)}",
     ]
     return "\n".join(line for line in lines if line)
+
+
+def _team_name(session: Session, sub: Submission) -> str:
+    return session.get_one(Team, sub.team_id).name
 
 
 def _cost(mock: bool, free: bool, tokens: int, usd: float) -> str:
@@ -765,7 +783,7 @@ def _questions(session: Session, sub: Submission, raw: list[Any], by_id: dict[st
     out = []
     for q in raw:
         ids = [i for i in (q.get("evidence_ids") or []) if i in by_id] if isinstance(q, dict) else []
-        if ids and str(q.get("question", "")).strip():
+        if ids and str(q.get("question", "")).strip() and len(str(q["question"]).split()) <= 24:
             out.append(render_question(clip(str(q["question"]), 240), _source_label(by_id[ids[0]]), template=False))
     attempt = sub.source_hashes.get("evidence_attempt")
     evidence = list(
@@ -835,7 +853,7 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                     with tracing.span("evaluation.persist"):
                         session.commit()
                     stage_span.set_attribute("jb.status", "ok")
-            except BudgetExceeded as exc:
+            except BudgetExceeded:
                 session.rollback()
                 current = session.get_one(Submission, sid).state
                 transition(
@@ -843,7 +861,7 @@ def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | 
                     sid,
                     current,
                     State.REQUIRES_HUMAN,
-                    message=f"Token budget reached ({exc}); sent to judges for manual review",
+                    message="This one needs a human look: I hit my budget before finishing.",
                 )
                 session.commit()
             except StageError as exc:

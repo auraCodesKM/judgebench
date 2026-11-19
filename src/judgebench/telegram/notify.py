@@ -94,8 +94,9 @@ class TelegramBot:
 
 
 def format_message(team: str | None, text: str) -> str:
+    """ "Team Beta: text", unless the text already names the team (alerts and cards do)."""
     team = " ".join((team or "").split())[:80]
-    return f"[{team}] {text}" if team else text
+    return f"{team}: {text}" if team and team not in text else text
 
 
 def drain(session: Session, bot: TelegramBot, *, limit: int = 20, mode: str | None = None) -> int:

@@ -122,6 +122,23 @@ def claim_next(
     return claimed
 
 
+FAILURE_TEXT = {  # what a judge needs to know, in plain words
+    "repo_not_found": "the repo is private, deleted or misspelt",
+    "invalid_repo_url": "the repo link isn't a GitHub repository",
+    "repo_empty": "the repo is empty",
+    "no_commit_before_submission": "nothing was pushed before they submitted",
+    "github_unavailable": "GitHub didn't respond",
+    "github_redirect_refused": "GitHub redirected somewhere unexpected",
+    "model_quota_exhausted": "the AI model's daily quota ran out",
+    "free_tier_repo_not_allowed": "this repo isn't on the free-tier demo list",
+    "internal_error": "something went wrong on my side",
+    "worker_lease_expired": "the worker stopped mid-way",
+    "probe_unavailable": "the live-app checker was unavailable",
+    "evaluation_missing": "the evaluation went missing",
+    "profile_missing": "the repo profile went missing",
+}
+
+
 def record_failure(
     session: Session,
     submission_id: uuid.UUID,
@@ -139,7 +156,9 @@ def record_failure(
     )
     if retryable and sub.attempts < max_attempts:
         return  # stays in its state; next claim retries it
-    reason = f"Failed: {category}" + ("" if retryable else " (not retryable)")
+    reason = (
+        f"I couldn't finish this one: {FAILURE_TEXT.get(category, category.replace('_', ' '))}. Worth a look by hand."
+    )
     transition(
         session,
         submission_id,

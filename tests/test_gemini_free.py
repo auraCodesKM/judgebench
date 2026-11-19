@@ -70,7 +70,9 @@ def test_pipeline_refuses_other_repos(free: None, session_factory: sessionmaker[
     session.refresh(sub)
     assert sub.state == State.FAILED and sub.error_category == "free_tier_repo_not_allowed"
     assert not llm.seen  # no model call was made
-    assert "Failed: free_tier_repo_not_allowed (not retryable)" in lines(session, sub)
+    assert "I couldn't finish this one: this repo isn't on the free-tier demo list. Worth a look by hand." in lines(
+        session, sub
+    )
     assert "only evaluates the allow-listed demo-cast repos" in (sub.error_detail or "")
 
 

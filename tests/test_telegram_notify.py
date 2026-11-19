@@ -42,7 +42,7 @@ def test_sends_plain_text_with_team_prefix(session: Session, sub: m.Submission) 
     assert sent == [
         {
             "chat_id": -100123,
-            "text": "[=Team Alpha] Profiled (commit 3f2c1ab): Python",
+            "text": "=Team Alpha: Profiled (commit 3f2c1ab): Python",
             "disable_web_page_preview": True,
         }
     ]  # no parse_mode

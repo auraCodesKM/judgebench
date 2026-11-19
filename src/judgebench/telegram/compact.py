@@ -8,17 +8,17 @@ exactly like the live run did.
   silent    COST: already part of the summary card
 """
 
-PROGRESS = [
-    ("RECEIVED", "received"),
-    ("PROFILED", "profiled"),
-    ("CI", "CI"),
-    ("LIVE_CHECK", "live"),
-    ("DEMO", "demo"),
-    ("CLAIMS", "claims"),
-    ("CRITIC", "critic"),
-    ("READY", "ready"),
+PROGRESS = [  # (stage, done label, doing label)
+    ("RECEIVED", "", "got it"),
+    ("PROFILED", "code", "reading code"),
+    ("CI", "CI", "checking CI"),
+    ("LIVE_CHECK", "live app", "trying the live app"),
+    ("DEMO", "", "looking for a demo"),
+    ("CLAIMS", "claims", "checking claims"),
+    ("CRITIC", "scores", "double-checking scores"),
+    ("READY", "", "writing the summary"),
 ]
-PROGRESS_STAGES = {s for s, _ in PROGRESS}
+PROGRESS_STAGES = {s for s, _, _ in PROGRESS}
 ALERT_STAGES = {"ALERT", "CARD", "REJECTED", "FAILED", "REQUIRES_HUMAN", "EVENT_READY", "PARTIAL", "CANCELLED"}
 SILENT_STAGES = {"COST"}
 
@@ -36,6 +36,12 @@ def classify(stage: str, text: str) -> set[str]:
 
 
 def progress_text(team: str | None, version: int | None, done: set[str], failed: bool = False) -> str:
-    head = f"{team or 'Submission'}" + (f" (v{version})" if version and version > 1 else "")
-    steps = " · ".join(f"{label} {'✓' if stage in done else '…'}" for stage, label in PROGRESS)
-    return f"{head}\n{steps}" + ("\n✗ stopped: see the alert below" if failed else "")
+    """One short line that updates: "Team Beta: code ✓ CI ✓ live app ✓ checking claims…", then "done ✓"."""
+    head = (team or "Submission") + (f" (v{version})" if version and version > 1 else "")
+    if failed:
+        return f"{head}: stopped (see below)"
+    if "READY" in done:
+        return f"{head}: done ✓"
+    ticks = [f"{label} ✓" for stage, label, _ in PROGRESS if stage in done and label]
+    doing = next((doing for stage, _, doing in PROGRESS if stage not in done and stage != "RECEIVED"), "")
+    return f"{head}: " + " ".join([*ticks, f"{doing}…"])

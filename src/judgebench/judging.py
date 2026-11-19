@@ -7,7 +7,6 @@ offline evaluator all say the same thing. Every question names the check or file
 
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
 NAMES = {
     "ci.tests_passed": "CI tests passed",
@@ -101,86 +100,130 @@ def _where(e: Any) -> str:
     return loc[5:] if loc.startswith("live:") else ("demo video" if loc.startswith(("demo", "form:demo")) else loc)
 
 
+STATUS_LABEL = {
+    "VERIFIED": "Confirmed",
+    "OBSERVED": "Partly confirmed",
+    "INFERRED": "Not checkable",
+    "MISSING": "Missing",
+    "CONTRADICTED": "Contradicted",
+}
+
+
+def words(text: str, n: int = 20) -> str:
+    """At most n words; a trailing "…" if cut."""
+    w = (text or "").split()
+    return " ".join(w) if len(w) <= n else " ".join(w[:n]).rstrip(".,;:") + "…"
+
+
+def lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:] if text[:2] != text[:2].upper() else text
+
+
+def plain_claim(text: str, n: int = 8) -> str:
+    """A claim as a judge would say it: short, no markdown, no trailing full stop."""
+    t = re.sub(r"[*_`#]", "", text or "").strip().rstrip(".")
+    return words(t, n)
+
+
+def contradiction(claim: Any, team: str | None = None) -> str:
+    """'they say "answers in real time", but their app took 8.6 s when I tried it.'"""
+    why = sentence(claim.rationale or "", 160).rstrip(".")
+    return f'they say "{plain_claim(claim.text)}", but {lower_first(why)}.'
+
+
 def top_concern(claims: list[Any], evidence: list[Any], scores: list[Any], names: dict[str, str]) -> str:
-    """One line from the strongest negative evidence, most serious first."""
+    """The one thing that stood out, from the strongest negative evidence. At most 20 words."""
     by = {e.key: e for e in evidence}
     if c := next((c for c in claims if c.verification_status == "CONTRADICTED"), None):
-        return clip(f'Claim contradicted: "{clip(c.text, 70)}". {sentence(c.rationale or "", 120)}', 220)
+        return words(contradiction(c)[:1].upper() + contradiction(c)[1:])
     for key in ("live.sample_query", "live.health"):
         if (e := by.get(key)) and e.status == "CONTRADICTED":
-            return clip(f"Live app failed: {e.observation}", 200)
-    if e := by.get("ci.failed"):
-        return clip(e.observation.removeprefix("GitHub Actions "), 200)
-    if e := by.get("ci.green_without_tests"):
-        return clip(e.observation.removeprefix("GitHub Actions ").replace(" but ", ", but "), 200)
+            return words(f"Their live app gave the wrong answer when I tried it: {sentence(e.observation, 80)}")
+    if by.get("ci.failed"):
+        return "Their CI is failing on the submitted commit."
+    if by.get("ci.green_without_tests"):
+        return "CI is green, but it doesn't run any tests."
     if s := next((s for s in scores if s.flagged), None):
-        return clip(
-            f"{names.get(s.criterion_id, s.criterion_id)}: {sentence(s.critic_note or 'flagged by the critic')}", 200
+        return words(
+            f"{names.get(s.criterion_id, s.criterion_id)}: {sentence(s.critic_note or 'score not backed by evidence')}"
         )
-    for key in ("rag.retrieval_evaluation", "ml.metrics_on_holdout", "generic.tests", "rag.retrieval_on_request_path"):
-        if (e := by.get(key)) and e.status in ("MISSING", "INFERRED"):
-            return clip(e.observation, 200)
+    if (e := by.get("rag.retrieval_evaluation")) and e.status == "MISSING":
+        return "No sign they measured how well their retrieval works."
+    if (e := by.get("ml.metrics_on_holdout")) and e.status == "MISSING":
+        return "No metrics on held-out data, so the accuracy is hard to trust."
+    if (e := by.get("generic.tests")) and e.status == "MISSING":
+        return "There are no tests in the repo."
+    if (e := by.get("rag.retrieval_on_request_path")) and e.status in ("MISSING", "INFERRED"):
+        return "The retriever exists, but nothing calls it when a question comes in."
     if weakest := min(scores, key=lambda s: s.score / s.max_score if s.max_score else 1, default=None):
         name = names.get(weakest.criterion_id, weakest.criterion_id)
-        return clip(f"Weakest: {name} {weakest.score:g}/{weakest.max_score:g}. {sentence(weakest.rationale, 140)}", 200)
+        return words(f"Weakest area: {name.lower()} ({weakest.score:g}/{weakest.max_score:g}).")
     return ""
 
 
 def template_questions(claims: list[Any], evidence: list[Any], deployed_url: str | None) -> list[tuple[str, str]]:
-    """(question, what prompted it), most important first. Specific to this team's evidence."""
+    """(question, what prompted it), most important first. Plain, specific, at most 20 words."""
     by = {e.key: e for e in evidence}
     out: list[tuple[str, str]] = []
     sample = by.get("live.sample_query")
     m = _MS.search(sample.observation) if sample else None
     for c in claims:
-        text = clip(c.text, 80)
+        claim = plain_claim(c.text)
         if c.verification_status == "CONTRADICTED" and _SPEED.search(c.text) and m and sample:
+            secs = int(m.group(2)) / 1000
             out.append(
                 (
-                    f'Your README claims "{text}"; the live check measured {int(m.group(2)) / 1000:.1f} s for '
-                    f"{_where(sample)}. What is your latency target, and where does the time go?",
-                    f"live check {_where(sample)}",
+                    f'You say "{claim}", yet it took {secs:.1f} s for me. What\'s your target?',
+                    "the live check",
                 )
             )
-        elif c.verification_status == "CONTRADICTED":
-            out.append(
-                (
-                    f'You claim "{text}", but {sentence(c.rationale or "", 120).rstrip(".")}. Can you show us?',
-                    "claim check",
-                )
-            )
-        elif "%" in c.text and c.verification_status in ("UNVERIFIED", "MISSING_EVIDENCE"):
-            out.append((f'Where does "{text}" come from? We found no script that computes it.', "README + code search"))
-    if e := by.get("ci.green_without_tests"):
-        out.append(
-            (
-                f"Your CI passes but runs no test command ({_where(e).removeprefix('ci:')}). How do you know the code works?",
-                "CI workflow",
-            )
-        )
+        elif c.verification_status == "CONTRADICTED" and re.search(r"test", c.text, re.I):
+            out.append((f'You say "{claim}", but I found no tests. What did you actually test?', "the repo"))
+        elif "%" in c.text and c.verification_status in ("UNVERIFIED", "MISSING_EVIDENCE", "CONTRADICTED"):
+            out.append((f'Where does "{claim}" come from? I couldn\'t find anything that measures it.', "the repo"))
+    if by.get("ci.green_without_tests"):
+        out.append(("Your CI is green but runs no tests. What would catch a bug before a demo?", "the CI workflow"))
     if (e := by.get("rag.retrieval_on_request_path")) and e.status in ("INFERRED", "MISSING"):
-        out.append((f"{sentence(e.observation, 120)} Where is retrieval called when a question comes in?", _where(e)))
-    if (e := by.get("rag.retrieval_evaluation")) and e.status == "MISSING":
-        out.append(("How did you measure retrieval quality? We found no evaluation code.", "code search"))
-    if (e := by.get("ml.metrics_on_holdout")) and e.status == "MISSING":
         out.append(
-            ("How was the model evaluated on held-out data? We found no metrics on a test split.", "code search")
+            ("Your retriever exists, but nothing calls it. How does a question actually get answered?", "the code")
         )
+    if (e := by.get("rag.retrieval_evaluation")) and e.status == "MISSING":
+        out.append(("How do you know retrieval finds the right passages?", "the repo"))
+    if (e := by.get("ml.metrics_on_holdout")) and e.status == "MISSING":
+        out.append(("How did the model do on data it never saw in training?", "the repo"))
     if (e := by.get("agentic.delegation")) and e.status == "MISSING":
-        out.append(("We found agents but no delegation between them. Which agent hands work to which?", "code search"))
+        out.append(("Which agent hands work to which, and how?", "the code"))
     if by.get("live.unreachable") and deployed_url:
-        host = urlsplit(deployed_url).hostname or deployed_url
-        out.append((f"Your app at {host} did not respond during our check. Can you demo it live?", "live check"))
+        out.append(("Your app didn't respond when I tried it. Can you show it running?", "the live check"))
     if (e := by.get("generic.tests")) and e.status == "MISSING":
-        out.append(("We found no test functions. What would you test first, and why?", "repository"))
+        out.append(("There are no tests. What would you test first?", "the repo"))
     if by.get("demo.unavailable"):
-        out.append(("No demo video was linked. Can you walk us through the main flow live?", "submission form"))
+        out.append(("No demo video. Can you walk us through the main flow?", "the submission form"))
     seen, unique = set(), []
     for q, src in out:
         if q not in seen:
             seen.add(q)
             unique.append((q, src))
     return unique
+
+
+def question_text(rendered: str) -> str:
+    """A stored question without its "(from …)" source note: what the Leaderboard and card show."""
+    return re.sub(r"\s*\(from [^)]*\)\s*$", "", rendered or "").strip()
+
+
+def friendly_model(label: str | None) -> str:
+    """ "gemini-3.5-flash-lite (Gemini API free tier)" -> "Gemini Flash-Lite". Honest, short."""
+    name = (label or "").split(" (")[0]
+    if name == "offline-mock":
+        return "no AI model (offline placeholder scores)"
+    if "flash-lite" in name:
+        return "Gemini Flash-Lite"
+    if "flash" in name:
+        return "Gemini Flash"
+    if "pro" in name:
+        return "Gemini Pro"
+    return name or "an unknown model"
 
 
 def render_question(q: str, source: str, template: bool) -> str:

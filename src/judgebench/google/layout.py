@@ -20,7 +20,7 @@ from judgebench.google.workspace import (
     padded,
 )
 
-LAYOUT_VERSION = "2026-11-18.2"
+LAYOUT_VERSION = "2026-11-19.3"  # human status labels
 PROTECT_TAG = "judgebench:"
 WIDTHS: dict[str, list[int]] = {  # pixels, per visible column (the hidden key column excluded)
     "Leaderboard": [48, 140, 170, 78, 88, 52, 300, 300, 170, 64, 160, 210],
@@ -83,8 +83,8 @@ def _rules(tab: str, sid: int) -> list[dict[str, Any]]:
         ]
     if tab == "Evidence":
         st = _col(tab, "Status")
-        colour = {"VERIFIED": GREEN, "OBSERVED": YELLOW, "INFERRED": YELLOW, "PARTIAL": YELLOW}
-        colour |= {"CONTRADICTED": RED, "MISSING": RED}
+        colour = {"Confirmed": GREEN, "Partly confirmed": YELLOW, "Not checkable": YELLOW}
+        colour |= {"Contradicted": RED, "Missing": RED}
         return [_text_rule(sid, st, "TEXT_EQ", v, bg(c)) for v, c in colour.items()]
     if tab == "Team Detail":  # team header rows: bold on grey
         return [

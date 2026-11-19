@@ -70,11 +70,11 @@ def test_compact_replay_edits_one_progress_message_per_team(
 
     replay(session, source, send, lambda tabs: None, sleep=lambda s: None, edit=lambda mid, t: edits.append((mid, t)))
     stored = {n.text for n in session.query(m.Notification).filter(m.Notification.submission_id == a.id)}
-    progress = [t for t in sent if t.startswith("Team A\n")]
+    progress = [t for t in sent if t.startswith("Team A: ") and "\n" not in t]
     assert len(progress) == 1 and edits and all(mid == sent.index(progress[0]) + 1 for mid, _ in edits)
-    alerts = [t.removeprefix("[Team A] ") for t in sent if t.startswith("[Team A] ")]
-    assert alerts and set(alerts) <= stored  # every alert is a stored line, verbatim
-    assert any(t.startswith("Summary:") for t in alerts) and not any(t.startswith("Cost:") for t in alerts)
+    alerts = [t for t in sent if "\n" in t or t.startswith("Heads up")]
+    assert alerts and set(alerts) <= stored  # every alert/card is a stored line, verbatim
+    assert any("Checked by" in t for t in alerts) and not any(t.startswith("Cost:") for t in alerts)
 
 
 def test_demo_judges_get_copilot_access_to_the_replayed_run(session: Session) -> None:

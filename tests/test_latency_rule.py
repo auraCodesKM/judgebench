@@ -19,7 +19,8 @@ def test_slow_answer_contradicts_a_real_time_claim() -> None:
     out = latency_rule(claim("answers in real time"), v, {"_evidence": [ev("POST /ask -> 200 in 8528 ms (json)")]})
     assert out["status"] == "CONTRADICTED" and out["evidence_ids"] == ["E2", "E7"]
     assert (
-        out["rationale"] == "Rule: the live check measured 8.5 s for POST /ask, not real-time. (model said UNVERIFIED.)"
+        out["rationale"]
+        == "Rule: their app took 8.5 s to answer when I tried it. (The model alone had said unverified.)"
     )
 
 

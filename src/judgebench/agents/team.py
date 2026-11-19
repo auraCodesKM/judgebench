@@ -39,7 +39,8 @@ VERDICT_RULES = (
     "Statuses: VERIFIED (a behavioural source - CI that ran real tests or a successful live check - AND matching "
     "code), PARTIALLY_VERIFIED (one of the two), UNVERIFIED (claimed, not shown), CONTRADICTED (evidence disagrees), "
     "MISSING_EVIDENCE (expected artefact absent), NOT_VERIFIABLE (needs credentials/hardware we lack). A demo alone "
-    "never makes a claim VERIFIED. The status must agree with your rationale."
+    "never makes a claim VERIFIED. The status must agree with your rationale. Rationale: one short plain sentence "
+    'saying what you found, without restating the claim (e.g. "there are no test files in the repo").'
 )
 TEXT_SUFFIXES = {
     ".py",
@@ -270,8 +271,9 @@ def rubric_evaluator(model: Model, meter: Meter) -> LlmAgent:
         output_key="rubric_result",
         instruction=PREAMBLE + "Score every rubric criterion exactly once. Each score must be justified by cited "
         "evidence IDs; if evidence is missing say what is missing and score conservatively. A failed or impossible "
-        "check (NOT_VERIFIABLE, CHECK_FAILED) is not by itself a reason to lower a score. Each rationale is one plain "
-        "sentence a judge can read in five seconds. Give up to 3 suggested judge questions, each specific to this "
+        "check (NOT_VERIFIABLE, CHECK_FAILED) is not by itself a reason to lower a score. Each rationale is one short "
+        "sentence a judge would say out loud (under 20 words, no jargon). Give up to 3 suggested judge questions, "
+        "each under 20 words, friendly and specific to this "
         "team: name the claim or the finding that prompted it in plain words (never paste evidence lines or keys), "
         "use only numbers that appear in the evidence, and "
         'cite its evidence ID (shape: "Your README claims <claim>; <check> found <what the evidence says>. <question>?"). '
@@ -436,13 +438,13 @@ def latency_rule(claim: ClaimView, verdict: dict[str, Any], state: Any) -> dict[
         m = _LATENCY.search(e.observation) if e.key == "live.sample_query" else None
         if m and m.group(1).startswith("2") and int(m.group(2)) > SLOW_MS:
             secs = int(m.group(2)) / 1000
-            note = f"Rule: the live check measured {secs:.1f} s for {e.locator.removeprefix('live:')}, not real-time."
+            note = f"Rule: their app took {secs:.1f} s to answer when I tried it."
             return verdict | {
                 "status": "CONTRADICTED",
                 "evidence_ids": list(dict.fromkeys([*verdict.get("evidence_ids", []), e.id])),
                 "rationale": note
                 if verdict["status"] == "CONTRADICTED"
-                else f"{note} (model said {verdict['status']}.)",
+                else f"{note} (The model alone had said {verdict['status'].lower().replace('_', ' ')}.)",
             }
     return verdict
 

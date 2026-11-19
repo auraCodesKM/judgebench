@@ -81,14 +81,12 @@ def apply_rules(scores: list[Score], evidence: dict[str, EvidenceView]) -> list[
             and s.score > s.max / 2
             and not any(e.key in EVAL_EVIDENCE and e.status in SUPPORTING for e in cited)
         ):
-            reason = "cited no evaluation evidence"
+            reason = "nothing shows how they evaluated their model"
         elif s.score > s.max / 2 and not any(e.status in SUPPORTING for e in cited):
-            reason = "cited no supporting evidence"
+            reason = "nothing in the evidence backs it up"
         if reason:
             new = float(math.floor(s.max * UNSUPPORTED_CAP))
-            messages.append(
-                f'"{s.name} {s.score:g}/{s.max:g}" {reason} -> revised to {new:g}/{s.max:g}, flagged for judges'
-            )
+            messages.append(f"I lowered {s.name.lower()} from {s.score:g} to {new:g} (out of {s.max:g}): {reason}.")
             s.score, s.flagged = new, True
             s.notes.append(reason)
     return messages
@@ -107,9 +105,9 @@ def apply_critique(scores: list[Score], raw: Any) -> list[str]:
             continue
         if rev.revised_score < s.score:  # never raise
             new = max(0.0, rev.revised_score)
+            why = rev.reason.strip().rstrip(".")
             messages.append(
-                f'"{s.name} {s.score:g}/{s.max:g}" {rev.reason} -> revised to {new:g}/{s.max:g}'
-                + (", flagged for judges" if rev.flag_for_judges else "")
+                f"I lowered {s.name.lower()} from {s.score:g} to {new:g} (out of {s.max:g}): {why[:1].lower() + why[1:]}."
             )
             s.score = new
         s.flagged = s.flagged or rev.flag_for_judges

@@ -41,18 +41,19 @@ BETA_CLAIMS = [
 def test_beta_questions_are_specific_and_sourced() -> None:
     qs = template_questions(BETA_CLAIMS, BETA_EV, "https://beta.vercel.app")
     assert qs[0] == (
-        'Your README claims "Our RAG system answers in real time"; the live check measured 8.5 s for POST /ask. '
-        "What is your latency target, and where does the time go?",
-        "live check POST /ask",
+        'You say "Our RAG system answers in real time", yet it took 8.5 s for me. What\'s your target?',
+        "the live check",
     )
-    assert qs[1][0] == 'Where does "98% accuracy" come from? We found no script that computes it.'
-    assert any("Where is retrieval called" in q for q, _ in qs)
-    assert render_question(*qs[0], template=True).endswith("(from live check POST /ask; template)")
+    assert all(len(q.split()) <= 20 for q, _ in qs)  # short enough to ask out loud
+    assert qs[1][0] == 'Where does "98% accuracy" come from? I couldn\'t find anything that measures it.'
+    assert any("nothing calls it" in q for q, _ in qs)
+    assert render_question(*qs[0], template=True).endswith("(from the live check; template)")
 
 
 def test_concern_prefers_the_strongest_negative_evidence() -> None:
     concern = top_concern(BETA_CLAIMS, BETA_EV, [], {})
-    assert concern.startswith('Claim contradicted: "Our RAG system answers in real time".') and "8.5 s" in concern
+    assert concern.startswith('They say "Our RAG system answers in real time", but') and "8.5 s" in concern
+    assert len(concern.split()) <= 21
     zeta = [
         e(
             "ci.green_without_tests",
@@ -61,8 +62,11 @@ def test_concern_prefers_the_strongest_negative_evidence() -> None:
             "ci:run/9",
         )
     ]
-    assert top_concern([], zeta, [], {}) == '"ci" passed on c8352c3, but the workflow runs no tests'
-    assert template_questions([], zeta, None)[0][0].startswith("Your CI passes but runs no test command")
+    assert top_concern([], zeta, [], {}) == "CI is green, but it doesn't run any tests."
+    assert (
+        template_questions([], zeta, None)[0][0]
+        == "Your CI is green but runs no tests. What would catch a bug before a demo?"
+    )
 
 
 def test_sentence_strips_vote_and_rule_prefixes() -> None:
