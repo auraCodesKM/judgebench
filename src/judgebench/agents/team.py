@@ -387,8 +387,35 @@ def clamped_verdicts(state: Any) -> list[dict[str, Any]]:
             "code_refs": [],
             "rationale": "No majority among the votes." if ballots else "Not investigated within the tool budget.",
         }
-        out.append(pick | {"status": top, "votes": votes_txt if len(votes) > 1 else None})
+        out.append(latency_rule(c, pick | {"status": top, "votes": votes_txt if len(votes) > 1 else None}, state))
     return out
+
+
+SLOW_MS = 3000  # a "real-time" / "instant" claim against a measured answer slower than this is contradicted
+_SPEED_CLAIM = re.compile(
+    r"real[- ]?time|instant|low[- ]latency|sub[- ]?second|under \d+ ?(ms|milliseconds|seconds?)", re.I
+)
+_LATENCY = re.compile(r"-> (\d{3}) in (\d+) ms")
+
+
+def latency_rule(claim: ClaimView, verdict: dict[str, Any], state: Any) -> dict[str, Any]:
+    """Deterministic, like the §7.5 clamps: a speed claim plus a successful live sample query measured
+    slower than SLOW_MS is CONTRADICTED, citing that measurement, whatever the model voted."""
+    if not _SPEED_CLAIM.search(claim.text):
+        return verdict
+    for e in state["_evidence"]:
+        m = _LATENCY.search(e.observation) if e.key == "live.sample_query" else None
+        if m and m.group(1).startswith("2") and int(m.group(2)) > SLOW_MS:
+            secs = int(m.group(2)) / 1000
+            note = f"Rule: the live check measured {secs:.1f} s for {e.locator.removeprefix('live:')}, not real-time."
+            return verdict | {
+                "status": "CONTRADICTED",
+                "evidence_ids": list(dict.fromkeys([*verdict.get("evidence_ids", []), e.id])),
+                "rationale": note
+                if verdict["status"] == "CONTRADICTED"
+                else f"{note} (model said {verdict['status']}.)",
+            }
+    return verdict
 
 
 def verdicts_block(state: Any, verdicts: list[dict[str, Any]]) -> str:
