@@ -54,9 +54,15 @@ def reset_demo(
         report.telegram_deleted += r.telegram_deleted
         report.telegram_failed += r.telegram_failed
     chat = event.telegram_chat_id
-    for n in session.scalars(select(Notification).where(Notification.event_id == event.id)):
-        if n.telegram_message_id and chat:
-            ok = delete_message(chat, n.telegram_message_id)
+    for mid in set(
+        session.scalars(
+            select(Notification.telegram_message_id).where(
+                Notification.event_id == event.id, Notification.telegram_message_id.is_not(None)
+            )
+        )
+    ):
+        if mid and chat:
+            ok = delete_message(chat, mid)
             report.telegram_deleted += ok
             report.telegram_failed += not ok
     session.execute(delete(Notification).where(Notification.event_id == event.id))

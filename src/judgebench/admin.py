@@ -33,10 +33,10 @@ def purge_team(session: Session, event: Event, team_name: str, delete_message: C
     subs: list[uuid.UUID] = list(session.scalars(select(Submission.id).where(Submission.team_id == team.id)))
     chat = int(event.config.get("telegram_chat_id") or 0)
     ok = failed = 0
-    for mid in session.scalars(
-        select(Notification.telegram_message_id).where(
-            Notification.submission_id.in_(subs), Notification.telegram_message_id.is_not(None)
-        )
+    for mid in session.scalars(  # distinct: a team's progress lines all share one (edited) message
+        select(Notification.telegram_message_id)
+        .where(Notification.submission_id.in_(subs), Notification.telegram_message_id.is_not(None))
+        .distinct()
     ):
         if chat and mid is not None and delete_message(chat, mid):
             ok += 1

@@ -37,7 +37,7 @@ def test_reset_demo_empties_the_event(session_factory: sessionmaker[Session], se
     session.commit()
     drive(session_factory, deps(repos.ALPHA_RAG, fake()))
     for i, n in enumerate(session.query(m.Notification).all()):
-        n.telegram_message_id = i + 1
+        n.telegram_message_id = 7 if n.stage in ("PROFILED", "CI", "CLAIMS") else 100 + i  # shared progress message
     session.add(
         m.Notification(
             tenant_id=event.tenant_id,
@@ -52,6 +52,7 @@ def test_reset_demo_empties_the_event(session_factory: sessionmaker[Session], se
     r = reset_demo(session, event, lambda c, mid: deleted.append(mid) or True, cleared.append)
     session.commit()
     assert r.teams == 1 and 999 in deleted and cleared == ["S"]
+    assert len(deleted) == len(set(deleted)) and r.telegram_failed == 0  # each message deleted once
     assert session.query(m.Team).filter_by(event_id=event.id).count() == 0
     assert session.query(m.Notification).filter_by(event_id=event.id).count() == 0
     forms = session.query(m.EventIntegration).filter_by(provider="google_forms").one()
