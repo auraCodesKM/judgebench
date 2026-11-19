@@ -45,6 +45,7 @@ from judgebench.db.models import (
 from judgebench.google.workspace import JUDGE_EDITABLE, KEY, TABS, Link, link, links
 from judgebench.judging import STATUS_LABEL, clip, dejargon, finding_name, question_text, sentence, top_concern, words
 from judgebench.worker.github import parse_repo_url
+from judgebench.workflow import FAILURE_TEXT
 
 Cell = str | int | float | Link
 Reader = Callable[[str, str], list[list[Any]]]  # (spreadsheet_id, tab) -> rows incl. header
@@ -187,7 +188,8 @@ def _concern(
 ) -> str:
     if ev is None:
         if sub.state.value == "FAILED":
-            return f"Not evaluated: {(sub.error_category or 'failed').replace('_', ' ')}"
+            cat = sub.error_category or ""
+            return f"Not evaluated: {FAILURE_TEXT.get(cat, cat.replace('_', ' ') or 'it failed')}."
         return f"Not evaluated yet ({sub.state.value.lower().replace('_', ' ')})"
     return top_concern(claims, evidence, scores, names)
 
