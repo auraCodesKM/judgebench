@@ -13,6 +13,7 @@ agent  orchestrator        custom ADK BaseAgent: routes to specialists chosen by
 """
 
 import re
+from collections import Counter
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,13 @@ from judgebench.agents.views import ClaimView, EvidenceView, clamp_verdict, evid
 
 Model = str | BaseLlm
 INVESTIGATOR_TOOL_BUDGET = 8
+VERDICT_CONFIG = types.GenerateContentConfig(temperature=0)  # claim verdicts: no sampling noise
+VERDICT_RULES = (
+    "Statuses: VERIFIED (a behavioural source - CI that ran real tests or a successful live check - AND matching "
+    "code), PARTIALLY_VERIFIED (one of the two), UNVERIFIED (claimed, not shown), CONTRADICTED (evidence disagrees), "
+    "MISSING_EVIDENCE (expected artefact absent), NOT_VERIFIABLE (needs credentials/hardware we lack). A demo alone "
+    "never makes a claim VERIFIED. The status must agree with your rationale."
+)
 TEXT_SUFFIXES = {
     ".py",
     ".ipynb",
@@ -197,14 +205,42 @@ def claim_investigator(model: Model, meter: Meter, tools: list[Any]) -> LlmAgent
         include_contents="none",
         tools=tools,
         output_key="verdicts_raw",
+        generate_content_config=VERDICT_CONFIG,
         instruction=PREAMBLE + "Investigate each claim with a reason-act-observe loop: decide what would prove or "
         f"disprove it, call a tool to look, read the observation, and repeat. You have at most "
         f"{INVESTIGATOR_TOOL_BUDGET} tool calls in total; stop as soon as every claim can be classified. "
-        "Statuses: VERIFIED (a behavioural source - CI that ran real tests or a successful live check - AND matching "
-        "code), PARTIALLY_VERIFIED (one of the two), UNVERIFIED (claimed, not shown), CONTRADICTED (evidence disagrees), "
-        "MISSING_EVIDENCE (expected artefact absent), NOT_VERIFIABLE (needs credentials/hardware we lack). A demo alone "
-        'never makes a claim VERIFIED. Final answer: only JSON {"verdicts": [{"claim_id": "C1", "status": "...", '
+        + VERDICT_RULES
+        + ' Final answer: only JSON {"verdicts": [{"claim_id": "C1", "status": "...", '
         '"evidence_ids": ["E3"], "code_refs": ["path#L10-L20"], "rationale": "..."}]}.',
+        **callbacks(meter, model_name(model), inject),
+    )
+
+
+def claim_judge(model: Model, meter: Meter, n: int) -> LlmAgent:
+    """Votes 2..N of the claim verdict (self-consistency): the same claims and evidence plus the
+    investigator's own tool observations, no tools of its own, temperature 0."""
+
+    def inject(state: dict[str, Any]) -> list[types.Part]:
+        seen = "\n".join(
+            f"{t['tool']}({', '.join(f'{k}={v}' for k, v in t['args'].items())}) -> {t.get('observation', '')}"
+            for t in meter.tools.get("claim_investigator", [])
+        )
+        return text_parts(
+            "Classify each claim.",
+            state["claims_block"],
+            evidence_block(state["_evidence"]),
+            fence("investigator_observations", seen or "(none)"),
+        )
+
+    return LlmAgent(
+        name=f"claim_judge_{n}",
+        model=model,
+        include_contents="none",
+        output_key=f"verdicts_raw_{n}",
+        generate_content_config=VERDICT_CONFIG,
+        instruction=PREAMBLE + VERDICT_RULES + " Decide from the evidence and the observations given; you have no "
+        'tools. Final answer: only JSON {"verdicts": [{"claim_id": "C1", "status": "...", "evidence_ids": ["E3"], '
+        '"code_refs": ["path#L10-L20"], "rationale": "..."}]}.',
         **callbacks(meter, model_name(model), inject),
     )
 
@@ -288,6 +324,9 @@ class Orchestrator(BaseAgent):
                     yield event
         async for event in by_name["claim_investigator"].run_async(ctx):
             yield event
+        for judge in sorted(n for n in by_name if n.startswith("claim_judge_")):
+            async for event in by_name[judge].run_async(ctx):
+                yield event
         verdicts = clamped_verdicts(ctx.session.state)
         yield Event(
             author=self.name,
@@ -300,12 +339,12 @@ class Orchestrator(BaseAgent):
             yield event
 
 
-def clamped_verdicts(state: Any) -> list[dict[str, Any]]:
+def _clamped_vote(state: Any, key: str) -> dict[str, dict[str, Any]]:
     claims: list[ClaimView] = state["_claims"]
     evidence = {e.id: e for e in state["_evidence"]}
     root: Path = state["_root"]
     try:
-        raw = ClaimVerdicts.model_validate(parse_json(state.get("verdicts_raw", "")))
+        raw = ClaimVerdicts.model_validate(parse_json(state.get(key, "")))
     except ValueError:
         raw = ClaimVerdicts(verdicts=[])
     known = {c.id for c in claims}
@@ -316,18 +355,40 @@ def clamped_verdicts(state: Any) -> list[dict[str, Any]]:
         refs = [r for r in v.code_refs if valid_code_ref(root, r)][:5]
         clamped = clamp_verdict(v, evidence, bool(refs))
         out[v.claim_id] = clamped.model_dump() | {"code_refs": refs}
-    for c in claims:  # every claim gets a verdict, even if the model skipped it
-        out.setdefault(
-            c.id,
-            {
-                "claim_id": c.id,
-                "status": "UNVERIFIED",
-                "evidence_ids": [],
-                "code_refs": [],
-                "rationale": "Not investigated within the tool budget.",
-            },
-        )
-    return [out[c.id] for c in claims]
+    return out
+
+
+def clamped_verdicts(state: Any) -> list[dict[str, Any]]:
+    """Each vote is clamped by the §7.5 rules on its own; the majority status wins (no majority:
+    UNVERIFIED). With one vote (offline / tests) this is the plain clamped verdict. The split is kept
+    on the verdict ("CONTRADICTED 3/3") so judges see how sure the panel was."""
+    claims: list[ClaimView] = state["_claims"]
+    data = state.to_dict() if hasattr(state, "to_dict") else dict(state)
+    keys = ["verdicts_raw", *sorted(k for k in data if k.startswith("verdicts_raw_"))]
+    votes = [_clamped_vote(state, k) for k in keys]
+    out = []
+    for c in claims:
+        ballots = [v[c.id] for v in votes if c.id in v]
+        statuses = [b["status"] for b in ballots] + ["UNVERIFIED"] * (len(votes) - len(ballots))
+        split = Counter(statuses)
+        top, n = split.most_common(1)[0]
+        majority = len(votes) == 1 or n * 2 > len(votes)
+        if majority:
+            pick = next((b for b in ballots if b["status"] == top), None)
+            others = ", ".join(f"{st} {k}" for st, k in split.most_common() if st != top)
+            votes_txt = f"{top} {n}/{len(votes)}" + (f" ({others})" if others else "")
+        else:
+            top, pick = "UNVERIFIED", None
+            votes_txt = "no majority (" + ", ".join(f"{st} {k}" for st, k in split.most_common()) + ")"
+        pick = pick or {
+            "claim_id": c.id,
+            "status": top,
+            "evidence_ids": [],
+            "code_refs": [],
+            "rationale": "No majority among the votes." if ballots else "Not investigated within the tool budget.",
+        }
+        out.append(pick | {"status": top, "votes": votes_txt if len(votes) > 1 else None})
+    return out
 
 
 def verdicts_block(state: Any, verdicts: list[dict[str, Any]]) -> str:
@@ -355,11 +416,18 @@ def valid_code_ref(root: Path, ref: str) -> bool:
     return 1 <= a <= b <= n
 
 
-def orchestrator(adapters: list[str], cheap: Model, strong: Model, meter: Meter, tools: list[Any]) -> Orchestrator:
+def orchestrator(
+    adapters: list[str], cheap: Model, strong: Model, meter: Meter, tools: list[Any], votes: int = 1
+) -> Orchestrator:
     specialists = [
         specialist(a, cheap, meter) for a in ("rag", "agentic", "ml", "generic") if a in adapters or a == "generic"
     ]
     return Orchestrator(
         name="orchestrator",
-        sub_agents=[*specialists, claim_investigator(strong, meter, tools), rubric_evaluator(strong, meter)],
+        sub_agents=[
+            *specialists,
+            claim_investigator(strong, meter, tools),
+            *[claim_judge(strong, meter, n) for n in range(2, votes + 1)],
+            rubric_evaluator(strong, meter),
+        ],
     )

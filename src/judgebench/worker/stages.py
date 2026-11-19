@@ -78,6 +78,7 @@ class Deps:
     scratch: Path | None = None
     ci_reader: Callable[[GitHub], CiReader] = CiReader
     embedder: Embedder = field(default_factory=HashingEmbedder)
+    votes: int = 1  # claim-verdict votes (self-consistency); 3 whenever a real model is used
 
     @classmethod
     def from_settings(cls) -> "Deps":
@@ -88,6 +89,7 @@ class Deps:
             configured(cfg.gemini_model),
             configured(cfg.gemini_model_strong),
             embedder=default_embedder(),
+            votes=1 if cfg.llm_mode == "offline" else 3,
         )
 
 
@@ -440,7 +442,7 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
     with checkout(deps, sub) as root:
         tools = team.investigation_tools(root, evidence)
         state = runtime.run(
-            team.orchestrator(profile.recommended_adapters, deps.cheap, deps.strong, meter, tools),
+            team.orchestrator(profile.recommended_adapters, deps.cheap, deps.strong, meter, tools, deps.votes),
             {
                 "adapters": profile.recommended_adapters,
                 "profile_block": fence(
@@ -467,7 +469,28 @@ def evaluate(session: Session, sid: uuid.UUID, deps: Deps) -> None:
         by_id = {e.id: e for e in evidence}
         for v in state.get("verdicts", []):
             row = session.get_one(Claim, next(c.row_id for c in claims if c.id == v["claim_id"]))
-            row.verification_status, row.rationale = v["status"], v["rationale"]
+            row.verification_status = v["status"]
+            row.rationale = (f"[{v['votes']}] " if v.get("votes") else "") + v["rationale"]
+            if v.get("votes"):  # the panel's split is evidence judges can weigh
+                _persist_findings(
+                    session,
+                    sub,
+                    [
+                        Finding(
+                            key="investigation.verdict_votes",
+                            claim=row.text,
+                            observation=f"{v['claim_id']} verdict {v['votes']} votes",
+                            source_type=SourceType.FORM if row.source == "form" else SourceType.DOCUMENTATION,
+                            source_locator=f"claim:{v['claim_id']}",
+                            status=EvidenceStatus.CONTRADICTED
+                            if v["status"] == "CONTRADICTED"
+                            else EvidenceStatus.OBSERVED,
+                            confidence=0.6,
+                            verification_method="claim_investigation",
+                        )
+                    ],
+                    sub.source_hashes["evidence_attempt"],
+                )
             row.evidence_ids = [str(by_id[e].row_id) for e in v["evidence_ids"]]
             for ref in v["code_refs"]:  # code the investigator found with its tools becomes evidence
                 path, _, lines = ref.partition("#L")

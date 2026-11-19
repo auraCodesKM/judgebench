@@ -123,7 +123,8 @@ def evaluate_case(
     refused = 0
     per_crit: dict[str, list[float]] = {}
     failures = []
-    expected_agents = [*case.expected_specialists, "claim_investigator", "rubric_evaluator"]
+    judges = [f"claim_judge_{n}" for n in range(2, deps.votes + 1)]  # self-consistency votes, when on
+    expected_agents = [*case.expected_specialists, "claim_investigator", *judges, "rubric_evaluator"]
     with factory() as s:
         for sid in submissions:
             sub = s.get_one(Submission, sid)
