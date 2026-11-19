@@ -185,6 +185,8 @@ def demo_submit(
     sleep: Callable[[float], None] = clock.sleep,
     timeout: float = 1800,
     say: Callable[[str], None] = print,
+    only: list[str] | None = None,
+    rest: bool = False,
 ) -> list[str]:
     """Wait until `after`'s real Form submission has been ingested, then submit every other team, one per
     `gap` seconds, through the public Form. Returns the teams submitted."""
@@ -201,9 +203,19 @@ def demo_submit(
         ).one()
         uri, questions = forms.external_ids["responder_uri"], forms.external_ids["questions"]
     started = datetime.now(UTC)
-    say(f"waiting for {after}'s Form submission to arrive (start the run loop first) ...")
+    if rest:  # off camera: everyone not in the event yet, no waiting
+        with session_factory() as s:
+            present = {n.lower() for n in s.scalars(select(Team.name).where(Team.event_id == event.id))}
+        only = [
+            t["team_name"]
+            for t in teams
+            if t["team_name"].lower() not in present and t["team_name"].lower() != after.lower()
+        ]
+        say(f"submitting the remaining {len(only)} team(s): {', '.join(only) or 'none'}")
     waited = 0.0
-    while True:
+    if not rest:
+        say(f"waiting for {after}'s Form submission to arrive (start the run loop first) ...")
+    while not rest:
         with session_factory() as s:
             arrived = s.scalar(
                 select(Submission.id)
@@ -224,10 +236,39 @@ def demo_submit(
     say(f"{after} arrived. Submitting the other teams, one every {gap:g} s.")
     done = []
     for t, code in zip(teams, codes, strict=False):
-        if t["team_name"].lower() == after.lower():
+        if t["team_name"].lower() == after.lower() or (only is not None and t["team_name"] not in only):
             continue
         sleep(gap)
         status = post(uri, questions, t, code)
         say(f"  {datetime.now():%H:%M:%S}  {t['team_name']}: Form submitted (HTTP {status})")
         done.append(t["team_name"])
     return done
+
+
+def live_rate_check(p: Preflight, model: str, api_key: str) -> None:
+    """One tiny real call (1 request): the model answers and is not rate-limited right now (per minute or
+    per day). Also reports the limiter's rate: one under the free tier's RPM."""
+    import re
+
+    from google import genai
+    from google.genai import types
+
+    from judgebench.agents.modes import FREE_LIMITS
+    from judgebench.config import settings
+
+    rpm = settings().gemini_free_rpm or FREE_LIMITS.get(model, (10, 0))[0]
+    try:
+        genai.Client(api_key=api_key, vertexai=False).models.generate_content(
+            model=model,
+            contents="ok",
+            config=types.GenerateContentConfig(
+                max_output_tokens=5, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+            ),
+        )
+        p.ok.append(f"{model}: answering now; free tier {rpm} requests/min, limiter set to {rpm - 1}/min")
+    except Exception as exc:  # noqa: BLE001 - reported, never raised
+        t = str(exc)
+        q = re.search(r"'quotaId': '([^']+)'", t)
+        d = re.search(r"'retryDelay': '([^']+)'", t)
+        what = q.group(1) if q else t[:80]
+        p.problems.append(f"{model}: {what}" + (f"; retry in {d.group(1)}" if d else ""))

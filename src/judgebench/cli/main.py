@@ -131,6 +131,35 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if r.written_tabs or r.overrides:
                     log.info("%s: sheets %s, %d judge override(s) kept", event.slug, r.written_tabs, r.overrides)
 
+    if args.workers > 1 and not args.once:  # parallel workers; the model rate limiter is shared by all of them
+        import threading
+
+        from judgebench.agents.modes import limiter_stats
+
+        def worker() -> None:
+            while True:
+                try:
+                    sid = run_next(factory, deps, only)
+                except Exception:  # noqa: BLE001 - a worker must never die; the stage records its own failure
+                    log.exception("worker step failed")
+                    sid = None
+                if sid is None:
+                    time.sleep(2)
+                else:
+                    log.info("processed %s", sid)
+                    _step("notify", notify)
+
+        for _ in range(args.workers):
+            threading.Thread(target=worker, daemon=True).start()
+        last = None
+        while True:
+            for name, fn in [("poll", poll), ("notify", notify), ("publish", publish)]:
+                _step(name, fn)
+            if (stats := limiter_stats()) != last:
+                log.info("model requests sent (retries): %s", {m: f"{a} ({b})" for m, (a, b) in stats.items()})
+                last = dict(stats)
+            time.sleep(min(args.interval, 5))
+
     while True:
         for name, fn in [("poll", poll), ("notify", notify), ("work", work), ("notify", notify), ("publish", publish)]:
             _step(name, fn)
@@ -354,6 +383,10 @@ def cmd_demo_preflight(args: argparse.Namespace) -> None:
             per_model[model] = per_model.get(model, 0) + 1
         for model, n in per_model.items():
             quota_check(p, s, model, teams=n, extra=3 if model == cfg.gemini_free_model else 0)  # + Copilot /ask
+        from judgebench.demo import live_rate_check
+
+        for model in per_model:
+            live_rate_check(p, model, cfg.gemini_api_key or "")
         for t in teams:
             if url := t.get("deployed_url"):
                 out = InProcessProbe().probe([{"method": "GET", "url": url.rstrip("/") + "/health"}])[0]
@@ -380,7 +413,8 @@ def cmd_demo_submit(args: argparse.Namespace) -> None:
     teams = yaml.safe_load(Path("benchmark/demo_teams.yaml").read_text())  # = DEMO_FORM_ANSWERS.md
     with sessions()() as s:
         event = s.scalars(select(Event).where(Event.slug == args.slug)).one()
-    demo_submit(sessions(), event, teams, cfg.team_codes, args.after, args.gap)
+    only = [t.strip() for t in args.teams.split(",")] if args.teams else None
+    demo_submit(sessions(), event, teams, cfg.team_codes, args.after, args.gap, only=only, rest=args.rest)
 
 
 def cmd_purge(args: argparse.Namespace) -> None:
@@ -520,6 +554,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("slug")
     p.add_argument("--after", required=True, help='team you submit on camera, e.g. "Team Beta"')
     p.add_argument("--gap", type=float, default=20.0)
+    p.add_argument("--teams", help='only these teams, in demo order, e.g. "Team Zeta,Team Epsilon"')
+    p.add_argument("--rest", action="store_true", help="submit every team not yet in the event, without waiting")
     p.set_defaults(fn=cmd_demo_submit)
     p = sub.add_parser("purge")
     p.add_argument("slug")
@@ -543,6 +579,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--interval", type=int, default=30)
     p.add_argument("--billed-ok", action="store_true", help="allow LLM_MODE=vertex (billed)")
     p.add_argument("--event", help="process only this event (required for LLM_MODE=gemini_free)")
+    p.add_argument("--workers", type=int, default=1, help="parallel pipeline workers (share the model rate limiter)")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("status")
     p.add_argument("slug")

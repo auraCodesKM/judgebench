@@ -806,7 +806,7 @@ STAGE_SPANS = {
 def run_next(sessions: sessionmaker[Session], deps: Deps, event_id: uuid.UUID | None = None) -> uuid.UUID | None:
     """Advance at most one submission by one stage. Returns its ID, or None if nothing to do.
     event_id=None: active events only; otherwise only that event (see claim_next)."""
-    for state, work in STAGES:
+    for state, work in reversed(STAGES):  # depth-first: finish teams already in progress before profiling new ones
         with sessions() as session:
             sweep_exhausted(session, state)
             session.commit()

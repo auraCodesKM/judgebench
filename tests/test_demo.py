@@ -114,3 +114,50 @@ def test_demo_submit_refuses_real_events(session: Session) -> None:
 
     with pytest.raises(SystemExit):
         demo_submit(None, make_event(session, "campus-ai-2026"), [], [], "Team Beta", 1)
+
+
+def test_demo_submit_teams_and_rest(session_factory: sessionmaker[Session], session: Session) -> None:
+    from judgebench.demo import demo_submit
+
+    sub = submit(session, "Team Beta")
+    event = session.get_one(m.Event, sub.event_id)
+    event.slug = "demo-y"
+    session.add(m.EventIntegration(tenant_id=event.tenant_id, event_id=event.id, provider="google_forms",
+                                   external_ids={"responder_uri": "https://f/viewform", "questions": {}}))  # fmt: skip
+    session.commit()
+    teams = [{"team_name": n} for n in ("Team Beta", "Team Alpha", "Team Zeta", "Team Epsilon")]
+    codes = ["A111-1111", "B222-2222", "C333-3333", "D444-4444"]
+    posted: list[str] = []
+
+    def post(uri, q, t, c):  # type: ignore[no-untyped-def]
+        posted.append(t["team_name"])
+        submit(session, t["team_name"])  # the run loop would ingest it
+        return 200
+
+    demo_submit(
+        session_factory,
+        event,
+        teams,
+        codes,
+        "Team Beta",
+        0,
+        post=post,
+        sleep=lambda s: None,
+        say=lambda m: None,
+        rest=True,
+    )
+    assert posted == ["Team Alpha", "Team Zeta", "Team Epsilon"]
+    posted.clear()
+    demo_submit(
+        session_factory,
+        event,
+        teams,
+        codes,
+        "Team Beta",
+        0,
+        post=post,
+        sleep=lambda s: None,
+        say=lambda m: None,
+        rest=True,
+    )
+    assert posted == []  # everyone is in already
