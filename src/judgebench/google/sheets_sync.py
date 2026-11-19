@@ -43,7 +43,7 @@ from judgebench.db.models import (
     Team,
 )
 from judgebench.google.workspace import JUDGE_EDITABLE, KEY, TABS, Link, link, links
-from judgebench.judging import clip, finding_name, sentence, top_concern
+from judgebench.judging import clip, dejargon, finding_name, sentence, top_concern
 from judgebench.worker.github import parse_repo_url
 
 Cell = str | int | float | Link
@@ -239,7 +239,7 @@ def build_tabs(
         scored = ev is not None and ev.total_score is not None
         rank += scored
         ref = parse_repo_url(sub.repo_url or "")
-        questions = [str(q) for q in (ev.suggested_questions if ev else [])]
+        questions = [dejargon(str(q)) for q in (ev.suggested_questions if ev else [])]
         flags = sum(c.flagged for c in scores) + sum(c.verification_status == "CONTRADICTED" for c in claims)
         host = urlsplit(sub.deployed_url or "").hostname or ""
         tabs["Leaderboard"][f"team:{sub.team_id}"] = [
@@ -288,7 +288,7 @@ def build_tabs(
             "\n".join(f"• {q}" for q in questions[:5]),
         ]
         for c in scores:
-            note = c.critic_note or ""
+            note = dejargon(c.critic_note or "")
             if c.pre_critic_score is not None and c.pre_critic_score != c.score:
                 note = f"{c.pre_critic_score:g} → {c.score:g}: {note}".rstrip(": ")
             tabs["Team Detail"][f"crit:{sub.id}:{c.criterion_id}"] = [

@@ -75,4 +75,15 @@ def test_internal_ids_never_reach_judges() -> None:
     assert dejargon("No test functions were found (E9).") == "No test functions were found."
     assert dejargon("CI is missing (E1, E4) and tests too.") == "CI is missing and tests too."
     assert dejargon("C1 claims real time, but the app is slow.") == "real time, but the app is slow."
-    assert sentence("[UNVERIFIED 3/3] C3 claims 98% accuracy, but no eval exists (E2).") == "98% accuracy, but no eval exists."
+    assert (
+        sentence("[UNVERIFIED 3/3] C3 claims 98% accuracy, but no eval exists (E2).")
+        == "98% accuracy, but no eval exists."
+    )
+
+
+def test_more_id_forms_are_removed() -> None:
+    from judgebench.judging import dejargon
+
+    assert dejargon("How do you test? (Evidence: E1, E2, E9) (from CI run 7)") == "How do you test? (from CI run 7)"
+    assert dejargon("What about bullets? [E7] (from README.md)") == "What about bullets? (from README.md)"
+    assert dejargon("Evidence E15 shows the retriever is unused.") == "Evidence shows the retriever is unused."

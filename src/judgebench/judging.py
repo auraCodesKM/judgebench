@@ -54,7 +54,12 @@ _MS = re.compile(r"-> (\d{3}) in (\d+) ms")
 _PREFIX = re.compile(r"^(?:\[[^\]]*\]\s*|Rule:\s*)+")
 
 
-_IDS = re.compile(r"\s*\((?:[ECS]\d+(?:,\s*|\s+and\s+)?)+\)|\b(?:claim )?[EC]\d+\b(?: claims?)?\s*")
+_IDS = re.compile(
+    r"\s*[(\[](?:evidence:?\s*)?(?:[ECS]\d+(?:,\s*|\s+and\s+)?)+[)\]]"  # (E1, E5) [E7] (Evidence: E1)
+    r"|(?<=[Ee]vidence)\s+[EC]\d+(?:,\s*[EC]\d+)*"  # "Evidence E15 shows" -> "Evidence shows"
+    r"|\b(?:claim )?[EC]\d+\b(?: claims?)?\s*",
+    re.I,
+)
 
 
 def dejargon(text: str) -> str:
@@ -167,4 +172,4 @@ def template_questions(claims: list[Any], evidence: list[Any], deployed_url: str
 
 
 def render_question(q: str, source: str, template: bool) -> str:
-    return f"{q} (from {source}{'; template' if template else ''})"
+    return f"{dejargon(q)} (from {source}{'; template' if template else ''})"
