@@ -234,17 +234,9 @@ def question_text(rendered: str) -> str:
 
 
 def friendly_model(label: str | None) -> str:
-    """ "gemini-3.5-flash-lite (Gemini API free tier)" -> "Gemini Flash-Lite". Honest, short."""
+    """ "gemini-3.1-flash-lite (Gemini API free tier)" -> "gemini-3.1-flash-lite": the exact model, as on the Sheet."""
     name = (label or "").split(" (")[0]
-    if name == "offline-mock":
-        return "no AI model (offline placeholder scores)"
-    if "flash-lite" in name:
-        return "Gemini Flash-Lite"
-    if "flash" in name:
-        return "Gemini Flash"
-    if "pro" in name:
-        return "Gemini Pro"
-    return name or "an unknown model"
+    return "no AI model (offline placeholder scores)" if name == "offline-mock" else name or "an unknown model"
 
 
 def render_question(q: str, source: str, template: bool) -> str:

@@ -150,3 +150,10 @@ def test_one_alert_per_reason_and_the_cleanest_claim() -> None:
     assert (
         top_concern(claims, [], [], {}) == 'They say "Answers in real time", but their app took 8.7 s when I tried it.'
     )
+
+
+def test_card_footer_names_the_exact_model() -> None:
+    from judgebench.judging import friendly_model
+
+    assert friendly_model("gemini-3.1-flash-lite (Gemini API free tier)") == "gemini-3.1-flash-lite"
+    assert friendly_model("offline-mock") == "no AI model (offline placeholder scores)"
