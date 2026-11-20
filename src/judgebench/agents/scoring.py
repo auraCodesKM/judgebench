@@ -87,7 +87,9 @@ def apply_rules(scores: list[Score], evidence: dict[str, EvidenceView]) -> list[
             reason = "nothing in the evidence backs it up"
         if reason:
             new = float(math.floor(s.max * UNSUPPORTED_CAP))
-            messages.append(f"I lowered {lower_first(s.name)} from {s.score:g} to {new:g} (out of {s.max:g}): {reason}.")
+            messages.append(
+                f"I lowered {lower_first(s.name)} from {s.score:g} to {new:g} (out of {s.max:g}): {reason}."
+            )
             s.score, s.flagged = new, True
             s.notes.append(reason)
     return messages
