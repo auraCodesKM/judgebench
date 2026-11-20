@@ -448,7 +448,9 @@ def collect_evidence(session: Session, sid: uuid.UUID, deps: Deps) -> None:
             f"evidence:{e.id}",
             f"{finding_name(e)} ({e.status.lower()}, {e.source_locator}): {e.observation}",
         )
-        for e in session.scalars(select(Evidence).where(Evidence.stage_attempt == attempt))
+        for e in session.scalars(
+            select(Evidence).where(Evidence.submission_id == sub.id, Evidence.stage_attempt == attempt)
+        )
     ]
     with tracing.span("retrieval.index", model=deps.embedder.model):  # for the Judge Copilot (§11.3)
         tracing.annotate(chunks=index_pieces(session, sub, pieces + evidence_pieces, deps.embedder))

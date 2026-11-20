@@ -175,7 +175,7 @@ def top_concern(claims: list[Any], evidence: list[Any], scores: list[Any], names
         return "The retriever exists, but nothing calls it when a question comes in."
     if weakest := min(scores, key=lambda s: s.score / s.max_score if s.max_score else 1, default=None):
         name = names.get(weakest.criterion_id, weakest.criterion_id)
-        return words(f"Weakest area: {name.lower()} ({weakest.score:g}/{weakest.max_score:g}).")
+        return words(f"Weakest area: {lower_first(name)} ({weakest.score:g}/{weakest.max_score:g}).")
     return ""
 
 
