@@ -19,6 +19,7 @@ from collections.abc import AsyncGenerator, Iterator
 from contextlib import contextmanager
 from typing import Any
 
+import httpx
 from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -158,6 +159,8 @@ class FreeGemini(Gemini):
             raise FreeTierRefused(_repo.get())
         llm_request.config = llm_request.config or types.GenerateContentConfig()
         llm_request.config.automatic_function_calling = types.AutomaticFunctionCallingConfig(disable=True)
+        llm_request.config.http_options = llm_request.config.http_options or types.HttpOptions()
+        llm_request.config.http_options.timeout = REQUEST_TIMEOUT_MS  # a hung request must not stall a team forever
         lim = limiter(self.model)
         for attempt in range(6):
             lim.acquire(_priority.get())
@@ -171,13 +174,14 @@ class FreeGemini(Gemini):
                 lim.retried += 1
                 m = _DELAY.search(str(exc))
                 await asyncio.sleep(float(m.group(1)) if m else 10.0)
-            except ServerError:  # 500/503 "high demand": back off and try again
+            except (ServerError, httpx.TimeoutException):  # 500/503 "high demand" or no answer: back off, retry
                 if attempt == 5:
                     raise
                 lim.retried += 1
                 await asyncio.sleep(min(4.0 * 2**attempt, 30.0))
 
 
+REQUEST_TIMEOUT_MS = 120_000
 FREE_RETRY = types.HttpRetryOptions(attempts=1)  # every retry goes through generate_content_async above (counted)
 
 

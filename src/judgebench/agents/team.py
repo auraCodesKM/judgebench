@@ -296,7 +296,8 @@ def critic(model: Model, meter: Meter) -> LlmAgent:
         output_key="critique",
         instruction=PREAMBLE + "You review proposed criterion scores. For each, check the cited evidence actually "
         "supports the score and rationale. Flag unsupported conclusions, overlap between criteria, and claims treated "
-        "as verified that are not. You may only LOWER a score or flag it for judges; you can never raise one.",
+        "as verified that are not. You may only LOWER a score or flag it for judges; you can never raise one. "
+        "Each reason is one short plain sentence (under 15 words) a judge would say out loud, no evidence IDs.",
         **callbacks(meter, model_name(model), inject),
     )
 

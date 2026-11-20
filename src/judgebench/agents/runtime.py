@@ -38,7 +38,7 @@ from judgebench.errors import StageError
 # ADK warns on every run that our app name differs from the agents package name. Harmless, pure noise.
 logging.getLogger("google_adk.google.adk.runners").setLevel(logging.ERROR)
 
-PROMPT_VERSION = "2026-11-19.6"  # claim judges, temperature 0, shared verdict rules
+PROMPT_VERSION = "2026-11-20.1"  # claim judges, temperature 0, shared verdict rules
 MAX_LLM_CALLS = 40
 # USD per 1M tokens (input, output), standard tier, <=200K-token prompts. Checked 2026-11-18; sources
 # and caveats in DECISIONS.md. Unknown models are costed at 0 and reported as "price unknown".

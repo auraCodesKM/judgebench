@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from judgebench.agents.schemas import CriterionResult, Critique, RubricResult
 from judgebench.agents.views import EvidenceView
 from judgebench.event_config import Criterion
+from judgebench.judging import sentence, words
 
 UNSUPPORTED_CAP = 0.45  # share of max an uncited score is cut to (16/20 -> 9/20)
 EVAL_EVIDENCE = {"rag.retrieval_evaluation", "ml.metrics_on_holdout", "ml.metrics"}
@@ -105,7 +106,7 @@ def apply_critique(scores: list[Score], raw: Any) -> list[str]:
             continue
         if rev.revised_score < s.score:  # never raise
             new = max(0.0, rev.revised_score)
-            why = rev.reason.strip().rstrip(".")
+            why = words(sentence(rev.reason, 300), 16).rstrip(".")  # plain and short, whatever the model wrote
             messages.append(
                 f"I lowered {s.name.lower()} from {s.score:g} to {new:g} (out of {s.max:g}): {why[:1].lower() + why[1:]}."
             )
