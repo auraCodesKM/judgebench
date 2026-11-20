@@ -12,7 +12,8 @@ for sa in jb-api jb-worker jb-telegram; do
   gcloud projects add-iam-policy-binding $P --role=roles/cloudsql.client \
     --member=serviceAccount:$sa@$P.iam.gserviceaccount.com
 done
-# build SA: deploy, push images, act as the runtime SAs, write logs
+# build SA: deploy, push images, act as the runtime SAs, write logs. run.admin (not run.developer)
+# because the deploy sets IAM on jb-telegram (--allow-unauthenticated: Telegram can't send ID tokens).
 for role in roles/run.admin roles/artifactregistry.writer roles/logging.logWriter; do
   gcloud projects add-iam-policy-binding $P --role=$role \
     --member=serviceAccount:jb-build@$P.iam.gserviceaccount.com
@@ -24,8 +25,8 @@ done
 ```
 
 Secret access is granted per secret, not per project: `google-oauth-token` → jb-api only;
-`github-token` → jb-worker only; `telegram-bot-token` → jb-telegram only; `database-url` →
-api, worker and telegram. Invoker rights: jb-scheduler → api, worker and telegram;
+`github-token` → jb-worker only; `telegram-bot-token` and `telegram-webhook-secret` → jb-telegram
+only; `database-url` → api, worker and telegram (`roles/secretmanager.secretAccessor` on each secret). Invoker rights: jb-scheduler → api, worker and telegram;
 jb-worker → probe. The full deploy runbook (Artifact Registry, Cloud SQL, secrets, Scheduler
 jobs) comes with the deploy step.
 
@@ -81,6 +82,7 @@ gcloud projects add-iam-policy-binding $P --role=roles/aiplatform.user \
 # invocations (Telegram can't send Google ID tokens), so the secret header IS the auth.
 SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 printf %s "$SECRET" | gcloud secrets create telegram-webhook-secret --data-file=-
+# The bot token is part of Telegram's URL: run this from a script, not typed, so it stays out of history.
 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -d url="$TELEGRAM_URL/integrations/telegram/webhook" -d secret_token="$SECRET" -d allowed_updates='["message"]'
 ```

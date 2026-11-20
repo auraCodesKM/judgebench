@@ -121,7 +121,7 @@ Only for `LLM_MODE=vertex`. Needs billing on the project; every Gemini and embed
 - **Check:** `uv run python -c "from pathlib import Path; from judgebench.event_config import load_event_config as l; print(l(Path('events/<slug>.yaml')).slug)"`
 
 ### 9. Gemini API free-tier key (3 min), only for `LLM_MODE=gemini_free` on the demo cast
-- **Where:** https://aistudio.google.com/apikey → **Create API key** → pick a Google Cloud project **with no billing account** (e.g. `judgebench-kavin-2026`, or let AI Studio create one).
+- **Where:** https://aistudio.google.com/apikey → **Create API key** → pick a Google Cloud project **with no billing account** (e.g. `judgebench-free-2026`, or let AI Studio create one).
 - **.env:** `GEMINI_API_KEY=<key>`. Set `LLM_MODE=gemini_free` only for demo-cast runs (`judgebench bench`), and keep `offline` for the real event: in `gemini_free` mode every non-demo-cast repo is refused and marked FAILED.
 - **Don't:**
   - Click **Set up billing**, **Upgrade** or **Paid tier** anywhere in AI Studio. With billing attached, the same key becomes billed.
