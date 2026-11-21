@@ -1,4 +1,25 @@
+<div align="center">
+
 # Judgebench
+
+**Evidence-backed evaluation for AI hackathon submissions.**
+
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI: Cloud Build](https://img.shields.io/badge/CI-Cloud%20Build-4285F4?logo=googlecloud&logoColor=white)](cloudbuild.yaml)
+[![deploy: Cloud Run](https://img.shields.io/badge/deploy-Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](deploy/README.md)
+
+![Python: 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI: 0.115+](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)
+![Google ADK: agents](https://img.shields.io/badge/Google%20ADK-agents-4285F4?logo=google&logoColor=white)
+![Gemini: API · Vertex](https://img.shields.io/badge/Gemini-API%20%C2%B7%20Vertex-8E75B2?logo=googlegemini&logoColor=white)
+![PostgreSQL: pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
+![Telegram: bot](https://img.shields.io/badge/Telegram-bot-26A5E4?logo=telegram&logoColor=white)
+![Google Sheets: API](https://img.shields.io/badge/Google%20Sheets-API-34A853?logo=googlesheets&logoColor=white)
+![OpenTelemetry: Cloud Trace](https://img.shields.io/badge/OpenTelemetry-Cloud%20Trace-425CC7?logo=opentelemetry&logoColor=white)
+![Ruff: lint](https://img.shields.io/badge/Ruff-lint-D7FF64?logo=ruff&logoColor=white)
+![mypy: checked](https://img.shields.io/badge/mypy-checked-2A6DB2)
+
+</div>
 
 Not related to the JudgeBench benchmark for LLM judges.
 
