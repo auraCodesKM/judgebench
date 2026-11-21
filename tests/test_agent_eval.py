@@ -127,3 +127,17 @@ def test_refused_tool_calls_are_reported_not_counted_as_executed(
     )
     assert report.max_tool_calls == INVESTIGATOR_TOOL_BUDGET and report.refused == 2
     assert report.passed  # the budget held; asking for more is reported, not a failure
+
+
+def test_routing_accepts_parallel_order_and_optional_judges() -> None:
+    from judgebench.agent_eval import routed
+
+    judges = ["claim_judge_2", "claim_judge_3"]
+    rag = ["rag_specialist"]
+    assert routed(["claim_investigator", "rag_specialist", "rubric_evaluator"], rag, judges)
+    assert routed(
+        ["rag_specialist", "claim_investigator", "claim_judge_3", "claim_judge_2", "rubric_evaluator"], rag, judges
+    )
+    assert not routed(["claim_investigator", "ml_specialist", "rubric_evaluator"], rag, judges)
+    assert not routed(["claim_investigator", "rag_specialist", "claim_judge_2", "rubric_evaluator"], rag, judges)
+    assert not routed(["claim_investigator", "rag_specialist"], rag, judges)

@@ -62,6 +62,17 @@ class CaseReport:
         )
 
 
+def routed(agents: list[str], specialists: list[str], judges: list[str]) -> bool:
+    """Specialists + investigator (parallel, any order), then the extra claim judges (only when a claim is
+    contested, any order), then the evaluator."""
+    review, rest = agents[: len(specialists) + 1], agents[len(specialists) + 1 :]
+    return (
+        sorted(review) == sorted([*specialists, "claim_investigator"])
+        and rest[-1:] == ["rubric_evaluator"]
+        and sorted(rest[:-1]) in ([], sorted(judges))
+    )
+
+
 def _trajectory(expected: list[str], actual: list[dict[str, Any]]) -> float:
     def inv(names: list[str]) -> Invocation:
         return Invocation(
@@ -124,7 +135,6 @@ def evaluate_case(
     per_crit: dict[str, list[float]] = {}
     failures = []
     judges = [f"claim_judge_{n}" for n in range(2, deps.votes + 1)]  # self-consistency votes, when on
-    expected_agents = [*case.expected_specialists, "claim_investigator", *judges, "rubric_evaluator"]
     with factory() as s:
         for sid in submissions:
             sub = s.get_one(Submission, sid)
@@ -137,7 +147,7 @@ def evaluate_case(
             if audit is None or ev is None:
                 failures.append(f"{sid}: ended in {sub.state.value} ({sub.error_category})")
                 continue
-            routing.append(audit.detail.get("agents") == expected_agents)
+            routing.append(routed(audit.detail.get("agents") or [], case.expected_specialists, judges))
             tools = audit.detail.get("tools", [])
             traj.append(_trajectory(case.expected_tools, tools))
             args_ok += _args_valid(tools, repo_files)
