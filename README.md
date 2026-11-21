@@ -1,5 +1,7 @@
 # Judgebench
 
+Not related to the JudgeBench benchmark for LLM judges.
+
 An AI judging assistant for hackathons. It reads each submission's code, CI and live app, checks
 the team's claims against that evidence, and gives judges a short summary and the question worth
 asking.
