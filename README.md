@@ -148,3 +148,7 @@ tests/        unit, integration and security tests
 - [RESULTS.md](RESULTS.md): every measured number and its conditions
 - [SECURITY.md](SECURITY.md): the security boundary and its tests
 - [DECISIONS.md](DECISIONS.md): design choices and why
+
+## License
+
+MIT. See [LICENSE](LICENSE).
